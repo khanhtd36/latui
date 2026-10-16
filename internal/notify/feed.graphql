@@ -1,0 +1,29 @@
+query LatuiFeed($ari: String, $first: Int, $after: String, $filter: InfluentsNotificationFilter) {
+  notifications {
+    notificationFeed(first: $first, after: $after, filter: $filter, collabContextRoutingAri: $ari) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        groupId
+        groupSize
+        readStates
+        additionalActors { displayName }
+        headNotification {
+          notificationId
+          timestamp
+          readState
+          category
+          analyticsAttributes { key value }
+          content {
+            type
+            message
+            url
+            actor { displayName }
+            entity { title url status }
+            path { title url }
+            bodyItems { type document { format data } }
+          }
+        }
+      }
+    }
+  }
+}

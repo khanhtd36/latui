@@ -1,0 +1,127 @@
+package update
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestNewerThan(t *testing.T) {
+	all := []Release{{Tag: "v0.2.14"}, {Tag: "v0.2.13"}, {Tag: "v0.2.10"}, {Tag: "v0.2.9"}, {Tag: "v1.0.0-rc1"}}
+	got := make([]string, 0, len(all))
+	for _, r := range newerThan("0.2.10", all) {
+		got = append(got, r.Tag)
+	}
+	if strings.Join(got, " ") != "v0.2.14 v0.2.13" {
+		t.Fatalf("newer than 0.2.10 (numeric, not text, order): %v", got)
+	}
+	if newerThan("dev", all) != nil {
+		t.Fatal("a dev build has nothing newer")
+	}
+}
+
+func TestChanges(t *testing.T) {
+	rs := []Release{
+		{Notes: "## Changelog\n* 10529aa fix(checks): list a policy set on both branch and repo once\n* abc1234def feat(update): U updates latui\n\n**Full Changelog**: https://…"},
+		{Notes: "**Full Changelog**: https://…"},
+	}
+	want := "fix(checks): list a policy set on both branch and repo once|feat(update): U updates latui"
+	if got := strings.Join(Changes(rs), "|"); got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestHowInstalled(t *testing.T) {
+	for exe, want := range map[string]Method{
+		`C:\Users\me\AppData\Local\Programs\latui\latui.exe`: ByScript,
+		"/home/me/.local/bin/latui":                          ByScript,
+		"/opt/homebrew/Cellar/latui/0.2.13/bin/latui":        ByHomebrew,
+		"/home/linuxbrew/.linuxbrew/bin/latui":               ByHomebrew,
+		`C:\Users\me\go\bin\latui.exe`:                       ByGo,
+		`C:\Users\me\AppData\Local\Microsoft\WinGet\Packages\khanhtd36.latui_Microsoft.Winget.Source_8wekyb3d8bbwe\latui.exe`: ByWinget,
+		`C:\Users\me\AppData\Local\Microsoft\WinGet\Links\latui.exe`:                                                          ByWinget,
+	} {
+		if got := HowInstalled(exe); got != want {
+			t.Errorf("%s: got %d, want %d", exe, got, want)
+		}
+	}
+}
+
+func TestVerifyAndExtract(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("latui_1.0.0/" + binaryName())
+	_, _ = w.Write([]byte("new binary"))
+	_ = zw.Close()
+	sum := sha256.Sum256(buf.Bytes())
+	sums := []byte(hex.EncodeToString(sum[:]) + "  latui_1.0.0_windows_x86_64.zip\n")
+	if err := verify(buf.Bytes(), sums, "latui_1.0.0_windows_x86_64.zip"); err != nil {
+		t.Fatal(err)
+	}
+	if err := verify(append(buf.Bytes(), 0), sums, "latui_1.0.0_windows_x86_64.zip"); err == nil {
+		t.Fatal("a changed archive must fail the checksum")
+	}
+	if bin, err := extract(buf.Bytes(), ".zip"); err != nil || string(bin) != "new binary" {
+		t.Fatalf("extract: %q %v", bin, err)
+	}
+}
+
+func TestReplaceKeepsOldAside(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "latui.exe")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := replace(exe, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "new" {
+		t.Fatalf("exe holds %q", b)
+	}
+	Cleanup(exe)
+	if _, err := os.Stat(exe + ".old"); !os.IsNotExist(err) {
+		t.Fatal("Cleanup should remove the old copy")
+	}
+}
+
+func TestRefreshCooldown(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []string{"LocalAppData", "XDG_CACHE_HOME", "HOME"} { // os.UserCacheDir per OS
+		t.Setenv(v, dir)
+	}
+	file, ok := cacheFile()
+	if !ok {
+		t.Skip("no cache folder here")
+	}
+	write := func(age time.Duration) {
+		b, _ := json.Marshal(cached{time.Now().Add(-age), []Release{{Tag: "v0.3.0"}}})
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	offline, cancel := context.WithCancel(context.Background())
+	cancel() // any request to GitHub fails
+
+	write(time.Minute)
+	rs, err := Refresh(offline, "0.2.17")
+	if err != nil || len(rs) != 1 || rs[0].Tag != "v0.3.0" {
+		t.Fatalf("within the cooldown the cached answer stands: %v %v", rs, err)
+	}
+	write(RefreshCooldown + time.Minute)
+	if _, err := Refresh(offline, "0.2.17"); err == nil {
+		t.Fatal("past the cooldown Refresh should ask GitHub")
+	}
+	if rs, err := Check(offline, "0.2.17"); err != nil || len(rs) != 1 {
+		t.Fatalf("the daily check still uses a 3-minute-old answer: %v %v", rs, err)
+	}
+}

@@ -1,0 +1,433 @@
+// Package update finds latui releases newer than the running one on GitHub
+// and installs them in place of the running executable.
+package update
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const repo = "khanhtd36/latui"
+
+// Release is one published version.
+type Release struct {
+	Tag   string `json:"tag_name"`
+	Notes string `json:"body"`
+}
+
+// Version is the tag without its "v".
+func (r Release) Version() string { return strings.TrimPrefix(r.Tag, "v") }
+
+// Newer lists the releases newer than current, newest first, asking GitHub.
+func Newer(ctx context.Context, current string) ([]Release, error) {
+	all, err := releases(ctx)
+	return newerThan(current, all), err
+}
+
+// cached is what the last answer from GitHub said, kept in the user cache
+// folder.
+type cached struct {
+	Checked  time.Time `json:"checked"`
+	Releases []Release `json:"releases"`
+}
+
+// RefreshCooldown is how long an answer from GitHub stands even for an
+// explicit check, so pressing U again and again asks at most this often.
+const RefreshCooldown = 2 * time.Minute
+
+func cacheFile() (string, bool) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", false
+	}
+	return filepath.Join(dir, "latui", "releases.json"), true
+}
+
+// fromCache returns the cached answer when it is younger than maxAge.
+func fromCache(maxAge time.Duration) ([]Release, bool) {
+	file, ok := cacheFile()
+	if !ok {
+		return nil, false
+	}
+	var c cached
+	b, err := os.ReadFile(file)
+	if err != nil || json.Unmarshal(b, &c) != nil || time.Since(c.Checked) >= maxAge {
+		return nil, false
+	}
+	return c.Releases, true
+}
+
+// Check is Newer at most once a day: most starts make no request at all.
+func Check(ctx context.Context, current string) ([]Release, error) {
+	return newerWithin(ctx, current, 24*time.Hour)
+}
+
+// Refresh is Newer asked of GitHub now, unless it was asked within
+// RefreshCooldown; the answer replaces the cache, so the daily check
+// starts over from it.
+func Refresh(ctx context.Context, current string) ([]Release, error) {
+	return newerWithin(ctx, current, RefreshCooldown)
+}
+
+func newerWithin(ctx context.Context, current string, maxAge time.Duration) ([]Release, error) {
+	if _, ok := parse(current); !ok {
+		return nil, nil // a development build isn't a release
+	}
+	if all, ok := fromCache(maxAge); ok {
+		return newerThan(current, all), nil
+	}
+	all, err := releases(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if file, ok := cacheFile(); ok {
+		if b, err := json.Marshal(cached{time.Now(), all}); err == nil && os.MkdirAll(filepath.Dir(file), 0o755) == nil {
+			_ = os.WriteFile(file, b, 0o644)
+		}
+	}
+	return newerThan(current, all), nil
+}
+
+func releases(ctx context.Context) ([]Release, error) {
+	var all []Release
+	err := getJSON(ctx, "https://api.github.com/repos/"+repo+"/releases?per_page=30", &all)
+	return all, err
+}
+
+// newerThan keeps the releases newer than current, in GitHub's order (newest
+// first). A development build ("dev") has nothing newer: it isn't a release.
+func newerThan(current string, all []Release) []Release {
+	cur, ok := parse(current)
+	if !ok {
+		return nil
+	}
+	var out []Release
+	for _, r := range all {
+		if v, ok := parse(r.Version()); ok && less(cur, v) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// parse reads "1.2.3"; anything else (a dev build, a pre-release) is not a
+// version to compare.
+func parse(s string) ([3]int, bool) {
+	var v [3]int
+	parts := strings.Split(strings.TrimPrefix(s, "v"), ".")
+	if len(parts) != 3 {
+		return v, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
+}
+
+func less(a, b [3]int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
+}
+
+// Changes lists what the releases changed, one line per change, newest
+// release first, without the "Full Changelog" link and commit hashes.
+func Changes(rs []Release) []string {
+	var out []string
+	for _, r := range rs {
+		for _, line := range strings.Split(r.Notes, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "* ") && !strings.HasPrefix(line, "- ") {
+				continue
+			}
+			line = strings.TrimSpace(line[2:])
+			// goreleaser's git changelog starts each line with the commit hash.
+			if hash, rest, ok := strings.Cut(line, " "); ok && len(hash) >= 7 && isHex(hash) {
+				line = rest
+			}
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func isHex(s string) bool {
+	_, err := hex.DecodeString(s[:len(s)/2*2])
+	return err == nil
+}
+
+// Method is how this copy of latui was installed, which decides how to
+// update it.
+type Method int
+
+const (
+	ByScript   Method = iota // install.sh or install.ps1: update in place
+	ByHomebrew               // leave it to brew
+	ByGo                     // leave it to go install
+	ByWinget                 // leave it to winget
+)
+
+// WingetID is latui's package in the winget community repository.
+const WingetID = "khanhtd36.latui"
+
+// HowInstalled tells from where the executable lives.
+func HowInstalled(exe string) Method {
+	p := strings.ReplaceAll(strings.ToLower(exe), `\`, "/")
+	switch {
+	case strings.Contains(p, "/cellar/") || strings.Contains(p, "/homebrew/") || strings.Contains(p, "/linuxbrew/"):
+		return ByHomebrew
+	case strings.Contains(p, "/go/bin/"):
+		return ByGo
+	case strings.Contains(p, "/microsoft/winget/"):
+		return ByWinget
+	}
+	return ByScript
+}
+
+// Command is what to run instead for a copy latui doesn't update itself.
+func (m Method) Command() string {
+	switch m {
+	case ByHomebrew:
+		return "brew upgrade latui"
+	case ByGo:
+		return "go install github.com/" + repo + "@latest"
+	case ByWinget:
+		return "winget upgrade " + WingetID
+	case ByScript:
+	}
+	return ""
+}
+
+// Install downloads release r for this platform, checks it against the
+// release's checksums and puts it in place of exe. On Windows the running
+// file can't be overwritten but can be renamed, so it moves to exe+".old"
+// first; Cleanup removes that on the next start.
+func Install(ctx context.Context, r Release, exe string, report func(Step)) error {
+	if report == nil {
+		report = func(Step) {}
+	}
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "x86_64"
+	}
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+	asset := fmt.Sprintf("latui_%s_%s_%s%s", r.Version(), runtime.GOOS, arch, ext)
+	base := "https://github.com/" + repo + "/releases/download/" + r.Tag + "/"
+
+	archive, err := get(ctx, base+asset, stallAfter, func(done, total int64) { report(Step{Done: done, Total: total}) })
+	if err != nil {
+		return err
+	}
+	sums, err := get(ctx, base+"checksums.txt", stallAfter, nil)
+	if err != nil {
+		return err
+	}
+	report(Step{Verifying: true, Done: int64(len(archive)), Total: int64(len(archive))})
+	if err := verify(archive, sums, asset); err != nil {
+		return err
+	}
+	bin, err := extract(archive, ext)
+	if err != nil {
+		return err
+	}
+	return replace(exe, bin)
+}
+
+func verify(archive, sums []byte, asset string) error {
+	sum := sha256.Sum256(archive)
+	got := hex.EncodeToString(sum[:])
+	for _, line := range strings.Split(string(sums), "\n") {
+		if f := strings.Fields(line); len(f) == 2 && f[1] == asset {
+			if !strings.EqualFold(f[0], got) {
+				return fmt.Errorf("%s: checksum mismatch, not installing", asset)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("checksums.txt has no entry for %s", asset)
+}
+
+func binaryName() string {
+	if runtime.GOOS == "windows" {
+		return "latui.exe"
+	}
+	return "latui"
+}
+
+func extract(archive []byte, ext string) ([]byte, error) {
+	if ext == ".zip" {
+		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range zr.File {
+			if filepath.Base(f.Name) == binaryName() {
+				rc, err := f.Open()
+				if err != nil {
+					return nil, err
+				}
+				defer rc.Close()
+				return io.ReadAll(rc)
+			}
+		}
+		return nil, errors.New("the release archive has no " + binaryName())
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, err
+	}
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			return nil, errors.New("the release archive has no " + binaryName())
+		}
+		if filepath.Base(h.Name) == binaryName() {
+			return io.ReadAll(tr)
+		}
+	}
+}
+
+// replace writes bin next to exe, then swaps it in.
+func replace(exe string, bin []byte) error {
+	next := exe + ".new"
+	if err := os.WriteFile(next, bin, 0o755); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		old := exe + ".old"
+		_ = os.Remove(old)
+		if err := os.Rename(exe, old); err != nil {
+			_ = os.Remove(next)
+			return err
+		}
+		if err := os.Rename(next, exe); err != nil {
+			_ = os.Rename(old, exe) // put the running one back
+			return err
+		}
+		return nil
+	}
+	return os.Rename(next, exe) // Unix replaces a running file's name freely
+}
+
+// Cleanup removes the copy a previous update moved aside.
+func Cleanup(exe string) { _ = os.Remove(exe + ".old") }
+
+// Step is how far an Install is: Done of Total bytes downloaded (Total is 0
+// when GitHub doesn't say), then the checksum check.
+type Step struct {
+	Verifying   bool
+	Done, Total int64
+}
+
+// String is "downloading 3.1/8.4 MB" or "checking checksum".
+func (s Step) String() string {
+	if s.Verifying {
+		return "checking checksum"
+	}
+	return "downloading " + megabytes(s.Done, s.Total)
+}
+
+// megabytes is "3.1/8.4 MB", or "3.1 MB" without a total.
+func megabytes(done, total int64) string {
+	mb := func(n int64) string { return strconv.FormatFloat(float64(n)/(1<<20), 'f', 1, 64) }
+	if total <= 0 {
+		return mb(done) + " MB"
+	}
+	return mb(done) + "/" + mb(total) + " MB"
+}
+
+// A slow download goes on as long as data keeps coming; it stops when none
+// arrives for stallAfter (checkStallAfter for the list of releases).
+var (
+	stallAfter      = 30 * time.Second
+	checkStallAfter = 20 * time.Second
+)
+
+var errStalled = errors.New("stalled")
+
+// get reads url, giving up once no data arrives for stall; progress, when
+// set, hears the bytes read so far and the total.
+func get(ctx context.Context, url string, stall time.Duration, progress func(done, total int64)) ([]byte, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	timer := time.AfterFunc(stall, func() { cancel(errStalled) })
+	defer timer.Stop()
+	var done, total int64
+	fail := func(err error) error {
+		if !errors.Is(context.Cause(ctx), errStalled) {
+			return err
+		}
+		if done == 0 && total == 0 {
+			return fmt.Errorf("no answer from GitHub for %s", stall)
+		}
+		return fmt.Errorf("no data from GitHub for %s (%s downloaded)", stall, megabytes(done, total))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fail(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	total = max(0, resp.ContentLength)
+	var out bytes.Buffer
+	buf := make([]byte, 32<<10)
+	for {
+		timer.Reset(stall)
+		if progress != nil {
+			progress(done, total)
+		}
+		n, err := resp.Body.Read(buf)
+		out.Write(buf[:n])
+		done += int64(n)
+		if errors.Is(err, io.EOF) {
+			if progress != nil {
+				progress(done, total)
+			}
+			return out.Bytes(), nil
+		}
+		if err != nil {
+			return nil, fail(err)
+		}
+	}
+}
+
+func getJSON(ctx context.Context, url string, out any) error {
+	b, err := get(ctx, url, checkStallAfter, nil)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}

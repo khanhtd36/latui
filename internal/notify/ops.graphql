@@ -1,0 +1,24 @@
+query LatuiUnseen($ari: String) {
+  notifications { unseenNotificationCount(collabContextRoutingAri: $ari) }
+}
+
+query LatuiGroup($ari: String, $groupId: String!, $after: String, $filter: InfluentsNotificationFilter) {
+  notifications {
+    notificationGroup(groupId: $groupId, first: 100, after: $after, filter: $filter, collabContextRoutingAri: $ari) {
+      pageInfo { hasNextPage endCursor }
+      nodes { notificationId readState }
+    }
+  }
+}
+
+mutation LatuiMarkRead($ari: String, $ids: [String!]!) {
+  notifications { markNotificationsByIdsAsRead(ids: $ids, collabContextRoutingAri: $ari) }
+}
+
+mutation LatuiMarkUnread($ari: String, $ids: [String!]!) {
+  notifications { markNotificationsByIdsAsUnread(ids: $ids, collabContextRoutingAri: $ari) }
+}
+
+mutation LatuiMarkAllRead($ari: String, $category: InfluentsNotificationCategory) {
+  notifications { markNotificationsAsRead(category: $category, collabContextRoutingAri: $ari) }
+}
