@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Which publishing secrets are set: a missing one skips its job instead
+  # of failing the release.
+  secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      homebrew: ${{ steps.check.outputs.homebrew }}
+      winget: ${{ steps.check.outputs.winget }}
+    steps:
+      - id: check
+        env:
+          HOMEBREW: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          WINGET: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          echo "homebrew=${HOMEBREW:+yes}" >> "$GITHUB_OUTPUT"
+          echo "winget=${WINGET:+yes}" >> "$GITHUB_OUTPUT"
+
+  # Writes Formula/latui.rb in khanhtd36/homebrew-tap from this release's
+  # checksums, for `brew install khanhtd36/tap/latui` on macOS and Linux.
+  homebrew:
+    needs: [release, secrets]
+    if: needs.secrets.outputs.homebrew == 'yes'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read checksums
+        id: sums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -p checksums.txt
+          sum() { awk -v f="latui_${version}_$1.tar.gz" '$2 == f { print $1 }' checksums.txt; }
+          {
+            echo "version=$version"
+            echo "darwin_arm64=$(sum darwin_arm64)"
+            echo "darwin_x86_64=$(sum darwin_x86_64)"
+            echo "linux_arm64=$(sum linux_arm64)"
+            echo "linux_x86_64=$(sum linux_x86_64)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: khanhtd36/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Write and push the formula
+        env:
+          VERSION: ${{ steps.sums.outputs.version }}
+          DARWIN_ARM64: ${{ steps.sums.outputs.darwin_arm64 }}
+          DARWIN_X86_64: ${{ steps.sums.outputs.darwin_x86_64 }}
+          LINUX_ARM64: ${{ steps.sums.outputs.linux_arm64 }}
+          LINUX_X86_64: ${{ steps.sums.outputs.linux_x86_64 }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/latui_${VERSION}"
+          mkdir -p tap/Formula
+          cat > tap/Formula/latui.rb <<EOF
+          class Latui < Formula
+            desc "Lazy Atlassian: Jira and Confluence notifications and issues in your terminal"
+            homepage "https://github.com/${GITHUB_REPOSITORY}"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "${base}_darwin_arm64.tar.gz"
+                sha256 "${DARWIN_ARM64}"
+              end
+              on_intel do
+                url "${base}_darwin_x86_64.tar.gz"
+                sha256 "${DARWIN_X86_64}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "${base}_linux_arm64.tar.gz"
+                sha256 "${LINUX_ARM64}"
+              end
+              on_intel do
+                url "${base}_linux_x86_64.tar.gz"
+                sha256 "${LINUX_X86_64}"
+              end
+            end
+
+            def install
+              bin.install "latui"
+            end
+
+            test do
+              assert_match "latui", shell_output("#{bin}/latui --version")
+            end
+          end
+          EOF
+          cd tap
+          git config user.name "khanhtd36-bot"
+          git config user.email "khanhtd36@gmail.com"
+          git add Formula/latui.rb
+          git commit -m "Update latui to ${VERSION}" || { echo "formula unchanged"; exit 0; }
+          git push
+
+  # Opens the pull request that updates khanhtd36.latui in
+  # microsoft/winget-pkgs, from WINGET_TOKEN's fork of it. The first version
+  # was submitted by hand; this keeps later ones coming.
+  winget:
+    needs: [release, secrets]
+    if: needs.secrets.outputs.winget == 'yes'
+    runs-on: windows-latest
+    steps:
+      - uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: khanhtd36.latui
+          installers-regex: '_windows_(x86_64|arm64)\.zip$'
+          token: ${{ secrets.WINGET_TOKEN }}
