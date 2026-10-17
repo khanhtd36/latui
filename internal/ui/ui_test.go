@@ -2,6 +2,9 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/khanhtd36/latui/internal/auth"
 	"github.com/khanhtd36/latui/internal/jira"
 	"github.com/khanhtd36/latui/internal/notify"
+	"github.com/khanhtd36/latui/internal/prefs"
 )
 
 type fakeJira struct {
@@ -21,6 +25,9 @@ type fakeJira struct {
 	assigned   *string
 	comment    string
 	transition string
+	rows       map[string][]jira.Row // by JQL prefix
+	created    []jira.NewIssue
+	moved      string
 }
 
 func (f *fakeJira) Site(context.Context) (auth.Credential, error) {
@@ -178,6 +185,7 @@ func key(k string) tea.Msg { return keyMsg(k) }
 
 func init() {
 	tickAfter = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
+	prefs.SetFile(filepath.Join(os.TempDir(), fmt.Sprintf("latui-test-%d.json", os.Getpid())))
 }
 
 func started(t *testing.T, j *fakeJira, f *fakeFeed) Model {

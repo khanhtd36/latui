@@ -40,6 +40,7 @@ type pickerModal struct {
 	search      func(q string) tea.Cmd
 	onSave      func(chosen []pickOption) tea.Cmd
 	initial     string // the checked IDs when opened, to tell a change
+	back        modal  // shown again when the picker closes (nil: close)
 }
 
 func newPicker(title string, multi bool, options []pickOption, onSave func([]pickOption) tea.Cmd) *pickerModal {
@@ -115,7 +116,7 @@ func (p *pickerModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 		if p.multi && p.checkedKey() != p.initial {
 			return &confirmModal{prompt: "Discard your changes?", back: p}, nil
 		}
-		return nil, nil
+		return p.back, nil
 	case "up", "ctrl+p", "ctrl+k":
 		p.cursor = max(0, p.cursor-1)
 		return p, nil
@@ -128,7 +129,7 @@ func (p *pickerModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 			return p.pick()
 		}
 		if p.checkedKey() == p.initial {
-			return nil, statusCmd("nothing changed")
+			return p.back, statusCmd("nothing changed")
 		}
 		var chosen []pickOption
 		for _, o := range p.options {
@@ -136,7 +137,7 @@ func (p *pickerModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 				chosen = append(chosen, o)
 			}
 		}
-		return nil, p.onSave(chosen)
+		return p.back, p.onSave(chosen)
 	case "enter":
 		if !p.multi {
 			return p.pick()
@@ -167,7 +168,7 @@ func (p *pickerModal) pick() (modal, tea.Cmd) {
 	if p.cursor >= len(vis) {
 		return p, nil
 	}
-	return nil, p.onSave([]pickOption{vis[p.cursor]})
+	return p.back, p.onSave([]pickOption{vis[p.cursor]})
 }
 
 // toggle checks or unchecks the option under the cursor; a found or
@@ -240,6 +241,7 @@ type inputModal struct {
 	title, hint string
 	input       textinput.Model
 	onSubmit    func(string) (modal, tea.Cmd)
+	back        modal // shown again on esc (nil: close)
 }
 
 func newInput(title, value, hint string, onSubmit func(string) (modal, tea.Cmd)) *inputModal {
@@ -256,7 +258,7 @@ func newInput(title, value, hint string, onSubmit func(string) (modal, tea.Cmd))
 func (i *inputModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		return nil, nil
+		return i.back, nil
 	case "enter":
 		return i.onSubmit(i.input.Value())
 	}

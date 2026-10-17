@@ -70,6 +70,34 @@ _Avoid_: Reply, note
 A move of an issue from one status to another, as allowed by its workflow.
 _Avoid_: Status change, move
 
+**My issues**:
+The page of issues assigned to or reported by Me that are not Done.
+_Avoid_: My work, your work, dashboard
+
+**Assigned**:
+The My issues tab of issues whose assignee is Me.
+_Avoid_: Mine, my tickets
+
+**Reported**:
+The My issues tab of issues whose reporter is Me.
+_Avoid_: Created by me, raised
+
+**Section**:
+A group of issues on My issues that share one status, which can be collapsed.
+_Avoid_: Group, bucket, swimlane
+
+**Favourite filter**:
+A saved Jira filter Me starred, whose issues can replace the My issues list.
+_Avoid_: Saved search, query, view
+
+**Parent**:
+The issue another issue sits under: an Epic for a normal issue, any issue for a subtask.
+_Avoid_: Epic link, container
+
+**Create another**:
+The create form's option to stay open after creating an issue, keeping every field but summary and description for the next one.
+_Avoid_: Keep open, batch create
+
 **History**:
 The record of field changes made to an issue, who made them and when.
 _Avoid_: Changelog, activity, audit log

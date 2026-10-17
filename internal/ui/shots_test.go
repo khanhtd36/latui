@@ -77,7 +77,7 @@ func TestShots(t *testing.T) {
 	}
 	is.Fields.Status.Category.Key = "indeterminate"
 	is.Fields.Project.Name = "Demo"
-	j := &fakeJira{issue: is}
+	j := &fakeJira{issue: is, rows: issuesJira().rows}
 
 	m := New(j, feed, time.Minute)
 	m = run(t, m, tea.WindowSizeMsg{Width: w, Height: h})
@@ -94,6 +94,11 @@ func TestShots(t *testing.T) {
 
 	m = run(t, m, key("t"))
 	save("3-transition", m.View())
+	m.modal, m.issue = nil, nil
+	m = run(t, m, key("2"))
+	save("4-my-issues", m.View())
+	m = run(t, m, key("n"))
+	save("5-create", m.View())
 }
 
 // ansiHTML turns a rendered screen into HTML that looks like the terminal:

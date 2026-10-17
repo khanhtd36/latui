@@ -32,6 +32,18 @@ func TestLive(t *testing.T) {
 		t.Fatal(v.err)
 	}
 	save(t, "notifications", m.View())
+	m = run(t, m, key("2"))
+	if l := m.issues.list(); l.err != nil {
+		t.Fatal(l.err)
+	}
+	save(t, "myissues", m.View())
+	m = run(t, m, key("n")) // loads the create form; nothing is created
+	if c, ok := m.modal.(*createModal); !ok || c.err != nil {
+		t.Fatalf("create form: %T %v", m.modal, c.err)
+	}
+	save(t, "create", m.View())
+	m = run(t, m, key("esc"))
+	m = run(t, m, key("1"))
 	m = run(t, m, key("tab"))
 	save(t, "watching", m.View())
 	m = run(t, m, key("tab"))

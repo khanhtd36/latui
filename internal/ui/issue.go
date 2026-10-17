@@ -46,6 +46,7 @@ type issueModel struct {
 	hErr     error
 	hLoaded  bool
 	saving   string // what a write in flight changes, for the title
+	pending  string // a key to run once the issue loads (a My issues row action)
 
 	focus  int
 	tab    int

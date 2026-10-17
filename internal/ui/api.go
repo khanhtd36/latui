@@ -25,6 +25,16 @@ type jiraAPI interface {
 	Assign(ctx context.Context, key, accountID string) error
 	AssignableUsers(ctx context.Context, key, query string) ([]jira.User, error)
 	LabelSuggestions(ctx context.Context, prefix string) ([]string, error)
+	Search(ctx context.Context, jql string) ([]jira.Row, error)
+	FavouriteFilters(ctx context.Context) ([]jira.Filter, error)
+	RecentProjects(ctx context.Context) ([]jira.Project, error)
+	CreateTypes(ctx context.Context, project string) ([]jira.IssueType, error)
+	CreateFields(ctx context.Context, project, typeID string) ([]jira.CreateField, error)
+	TypeStatuses(ctx context.Context, project string) (map[string][]jira.StatusOption, error)
+	CreateIssue(ctx context.Context, n jira.NewIssue) (string, error)
+	MoveTo(ctx context.Context, key, to string) (bool, error)
+	ProjectUsers(ctx context.Context, project, query string) ([]jira.User, error)
+	OpenEpics(ctx context.Context, project string) ([]jira.Row, error)
 }
 
 // feedAPI is what the UI asks of the notification feed.

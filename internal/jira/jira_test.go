@@ -161,3 +161,40 @@ func TestBranchName(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestSearchRowsWithMissingFields(t *testing.T) {
+	c, got := serve(t, map[string]string{"POST /rest/api/3/search/jql": `{"isLast":true,"issues":[
+		{"key":"QA-1","fields":{"summary":"S","status":{"name":"Deferred","statusCategory":{"key":"new"}},"issuetype":{"name":"Bug"},"priority":{"name":"High"},"parent":{"key":"QA-0"},"updated":"2026-10-15T02:03:22.153-0500"}},
+		{"key":"DEMO-2"}]}`})
+	rows, err := c.Search(context.Background(), "assignee = currentUser()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Status.Name != "Deferred" || rows[0].Parent != "QA-0" || rows[0].Priority != "High" || rows[1].Project != "DEMO" {
+		t.Errorf("rows %+v", rows)
+	}
+	if !strings.Contains(got["POST /rest/api/3/search/jql"], `"jql":"assignee = currentUser()"`) {
+		t.Errorf("body %s", got["POST /rest/api/3/search/jql"])
+	}
+}
+
+func TestCreateIssueBody(t *testing.T) {
+	c, got := serve(t, map[string]string{"POST /rest/api/3/issue": `{"key":"QA-9"}`})
+	key, err := c.CreateIssue(context.Background(), NewIssue{
+		Project: "QA", TypeID: "1", Summary: "Crash", Description: "It **crashes**",
+		Labels: []string{"x"}, Components: []string{"10"}, PriorityID: "2", Parent: "QA-1",
+		Users: map[string][]string{"customfield_1": {"u1"}},
+	})
+	if err != nil || key != "QA-9" {
+		t.Fatalf("key %q err %v", key, err)
+	}
+	body := got["POST /rest/api/3/issue"]
+	for _, want := range []string{`"project":{"key":"QA"}`, `"issuetype":{"id":"1"}`, `"components":[{"id":"10"}]`, `"parent":{"key":"QA-1"}`, `"customfield_1":[{"accountId":"u1"}]`, `"type":"doc"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `"assignee"`) {
+		t.Errorf("Automatic should send no assignee: %s", body)
+	}
+}

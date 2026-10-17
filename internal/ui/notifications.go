@@ -268,7 +268,7 @@ func (p *notesPage) key(msg tea.KeyMsg, api feedAPI, height int) tea.Cmd {
 		v.jumpDay(1)
 	case "K":
 		v.jumpDay(-1)
-	case "tab", "]", "shift+tab", "[":
+	case "tab", "shift+tab":
 		return p.switchTab(api, 1-p.tab)
 	case "u":
 		p.unreadOnly = !p.unreadOnly

@@ -34,7 +34,7 @@ var (
 	}
 	notificationsKeys = []binding{
 		{keys: "enter", desc: "open: a Jira issue in Issue detail, anything else in the browser; marks it read", press: "enter", hint: "open"},
-		{keys: "tab / [ ]", desc: "Direct ⇄ Watching", press: "tab", hint: "direct/watching"},
+		{keys: "tab", desc: "Direct ⇄ Watching", press: "tab", hint: "direct/watching"},
 		{keys: "u", desc: "Unread filter: show only unread notifications, or all", press: "u", hint: "unread"},
 		{keys: "m", desc: "mark the selected notification read, or unread again", press: "m", hint: "read"},
 		{keys: "M", desc: "mark all as read (asks first)", press: "M", hint: "all read"},
@@ -44,8 +44,24 @@ var (
 		{keys: "r", desc: "refresh", press: "r", hint: "refresh"},
 	}
 	pageKeys = []binding{
+		{keys: "1 / 2", desc: "Notifications / My issues page", hint: "pages"},
+		{keys: "[ / ]", desc: "previous / next page", press: "]"},
+		{keys: "n", desc: "new issue (in Issue detail: or a subtask of it)", press: "n", hint: "new"},
 		{keys: "ctrl+g", desc: "go to an issue by key, number or link", press: "ctrl+g", hint: "go to"},
 		{keys: "U", desc: "check for a newer latui now, and offer to install it", press: "U"},
+	}
+	myIssuesKeys = []binding{
+		{keys: "enter", desc: "open the issue; on a Section header, open or close the Section", press: "enter", hint: "open"},
+		{keys: "tab", desc: "Assigned ⇄ Reported", press: "tab", hint: "assigned/reported"},
+		{keys: "J / K", desc: "next / previous Section", press: "J", hint: "section"},
+		{keys: "f", desc: "show a favourite filter's issues (esc back)", press: "f", hint: "filters"},
+		{keys: "t", desc: "transition the selected issue", press: "t", hint: "status"},
+		{keys: "c", desc: "comment on the selected issue", press: "c", hint: "comment"},
+		{keys: "e / l / C / A", desc: "edit summary, labels, components, assignee", press: "A"},
+		{keys: "b", desc: "copy a git branch name", press: "b"},
+		{keys: "y", desc: "copy menu: key, link, summary, branch", press: "y", hint: "copy"},
+		{keys: "o", desc: "open in the browser", press: "o", hint: "browser"},
+		{keys: "r", desc: "refresh", press: "r", hint: "refresh"},
 	}
 	issueKeys = []binding{
 		{keys: "tab / shift+tab", desc: "next / previous pane: fields, description, activity", press: "tab", hint: "pane"},
@@ -75,6 +91,9 @@ var (
 func (m Model) helpGroups() []bindingGroup {
 	if m.issue != nil {
 		return withCommon(bindingGroup{"Issue", issueKeys}, bindingGroup{"Anywhere", pageKeys})
+	}
+	if m.page == pageIssues {
+		return withCommon(bindingGroup{"My issues", myIssuesKeys}, bindingGroup{"Anywhere", pageKeys})
 	}
 	return withCommon(bindingGroup{"Notifications", notificationsKeys}, bindingGroup{"Anywhere", pageKeys})
 }

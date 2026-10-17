@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +32,8 @@ func (m Model) View() string {
 		body = []string{styleYellow.Render("signing in…")}
 	case m.issue != nil:
 		body = m.issue.view(m.width, m.bodyHeight())
+	case m.page == pageIssues:
+		body = m.issuesView()
 	default:
 		body = m.notesView()
 	}
@@ -49,12 +52,16 @@ func (m Model) pageLabels() []string {
 	if c := m.notes.counts[0].String(); c != "" {
 		label += " (" + c + ")"
 	}
-	return []string{label}
+	issues := "2 My issues"
+	if l := m.issues.views[tabAssigned]; l.loaded {
+		issues += fmt.Sprintf(" (%d)", len(l.rows))
+	}
+	return []string{label, issues}
 }
 
 func (m Model) titleLine() string {
 	s := styleTitle.Render(strings.TrimSpace(titlePrefix)) + "  "
-	active := 0
+	active := m.page
 	if m.issue != nil {
 		active = -1 // Issue detail covers the page
 	}
@@ -65,10 +72,18 @@ func (m Model) titleLine() string {
 	if m.me.DisplayName != "" {
 		s += styleDim.Render(" · " + m.me.DisplayName)
 	}
+	loading, at := false, m.notes.view().fetchedAt
 	if v := m.notes.view(); v.loading || v.loadingMore {
+		loading = true
+	}
+	if m.page == pageIssues {
+		l := m.issues.list()
+		loading, at = l.loading, l.fetchedAt
+	}
+	if loading {
 		s += styleYellow.Render("  refreshing…")
-	} else if !v.fetchedAt.IsZero() {
-		s += styleDim.Render("  updated " + v.fetchedAt.Format("15:04:05"))
+	} else if !at.IsZero() {
+		s += styleDim.Render("  updated " + at.Format("15:04:05"))
 	}
 	return truncate(s+m.updateNote(), m.width)
 }
@@ -111,6 +126,18 @@ func (m Model) notesView() []string {
 
 func (m Model) onMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.modal != nil || m.help != nil || !m.started {
+		return m, nil
+	}
+	if isClick(msg) && msg.Y == 0 && m.issue == nil {
+		if p, ok := tabAt(m.pageLabels(), msg.X-len(titlePrefix), m.width-len(titlePrefix)); ok {
+			return m.switchPage(p)
+		}
+		return m, nil
+	}
+	if m.issue == nil && m.page == pageIssues {
+		if d := wheelDelta(msg); d != 0 {
+			m.issues.list().move(d, m.issues.coll())
+		}
 		return m, nil
 	}
 	if d := wheelDelta(msg); d != 0 {
@@ -160,4 +187,29 @@ func wheelDelta(msg tea.MouseMsg) int {
 	default:
 		return 0
 	}
+}
+
+// issuesView is the My issues page: Assigned and Reported, or a
+// Favourite filter's issues, in Sections by status.
+func (m Model) issuesView() []string {
+	p := m.issues
+	var head string
+	title := issueTabNames[p.tab]
+	if p.filter != nil {
+		title = "filter: " + p.filter.Name
+		head = styleDim.Render("  " + truncate(p.filter.JQL, m.width-20) + "  (esc back)")
+	} else {
+		head = tabBar(p.tabLabels(), p.tab, m.width-30) + "   " + styleDim.Render("f favourite filters")
+	}
+	h := m.bodyHeight() - 1
+	l := p.list()
+	if l.err != nil && len(l.rows) > 0 {
+		title += " · " + styleRed.Render("refresh failed")
+	}
+	pos := ""
+	if n := len(l.lines(p.coll())); n > 0 {
+		pos = position(l.cursor+1, n)
+	}
+	list := l.render(m.width-2, paneInnerHeight(h), p.coll())
+	return append([]string{head}, framePanes(h, pane{title: title, width: m.width, lines: list, focused: true, pos: pos})...)
 }

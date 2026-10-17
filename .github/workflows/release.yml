@@ -40,7 +40,12 @@ jobs:
           WINGET: ${{ secrets.WINGET_TOKEN }}
         run: |
           echo "homebrew=${HOMEBREW:+yes}" >> "$GITHUB_OUTPUT"
-          echo "winget=${WINGET:+yes}" >> "$GITHUB_OUTPUT"
+          # winget can only update a package it already has; the first
+          # version went in by hand.
+          if [ -n "$WINGET" ] && curl -fsS -o /dev/null \
+            https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/k/khanhtd36/latui; then
+            echo "winget=yes" >> "$GITHUB_OUTPUT"
+          fi
 
   # Writes Formula/latui.rb in khanhtd36/homebrew-tap from this release's
   # checksums, for `brew install khanhtd36/tap/latui` on macOS and Linux.

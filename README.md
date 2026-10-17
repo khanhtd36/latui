@@ -8,6 +8,14 @@ it without leaving the keyboard.
 - **Notifications** like the bell panel: the Direct and Watching tabs, an
   Unread filter, mark one read or unread, mark all as read. Notifications
   about the same issue or page are grouped, with what was said under them.
+- **My issues**: what's assigned to you or reported by you and not Done, in
+  Sections by status (In Progress, To Do, …; Fixed and Deferred start
+  closed), or the issues of one of your favourite filters. Transition,
+  comment, relabel and reassign right from the list.
+- **Create issues** in a form shaped like Jira's: project, type, summary,
+  markdown description, assignee (Automatic by default), labels, priority,
+  components, parent, due date, Tester and a starting status. **Create
+  another** keeps the form open with everything but summary and description.
 - **Issue detail**: every field (custom fields with a value included), the
   description, comments (newest first), history, links and attachments.
 - **Edits**: transition (with Resolution), comment in markdown (or in
@@ -92,15 +100,39 @@ The same keys mean the same thing everywhere, as in lazdo: `j`/`k` move,
 goes back, `y` copy menu, `o` browser, `r` refresh, `?` help (type to search
 it, `enter` runs the key), `q` quit.
 
+![Notifications](docs/screenshots/1-notifications.png)
+![My issues](docs/screenshots/4-my-issues.png)
+![Issue detail](docs/screenshots/2-issue.png)
+![New issue](docs/screenshots/5-create.png)
+
 | Notifications | |
 |---|---|
 | `enter` | open: a Jira issue in Issue detail, anything else (Confluence) in the browser; marks it read |
-| `tab` / `[` `]` | Direct ⇄ Watching |
+| `tab` | Direct ⇄ Watching |
 | `u` | Unread filter |
 | `m` | mark read, or unread again |
 | `M` | mark all as read (asks first) |
 | `J` / `K` | next / previous day |
 | `ctrl+g` | go to an issue |
+
+| My issues | |
+|---|---|
+| `enter` | open the issue; on a Section header, open or close it |
+| `tab` | Assigned ⇄ Reported |
+| `J` / `K` | next / previous Section |
+| `f` | show a favourite filter's issues (`esc` back) |
+| `t` `c` `e` `l` `C` `A` `b` | as in Issue detail, on the selected issue |
+
+| Anywhere | |
+|---|---|
+| `1` / `2`, `[` / `]` | Notifications / My issues page |
+| `n` | new issue (in Issue detail: or a subtask of it) |
+| `ctrl+g` | go to an issue |
+
+In the create form `tab` moves, `enter` opens a field's picker, `ctrl+s`
+creates, `ctrl+a` toggles Create another, `ctrl+e` writes the description in
+`$EDITOR` and `ctrl+y` copies what was created. latui remembers Create
+another, the last project and type, and which Sections you closed.
 
 | Issue detail | |
 |---|---|

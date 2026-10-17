@@ -19,6 +19,7 @@ var (
 	styleYellow    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 	styleRed       = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleCyan      = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	stylePurple    = lipgloss.NewStyle().Foreground(lipgloss.Color("141"))
 	styleSection   = lipgloss.NewStyle().Bold(true)
 	styleSelected  = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	styleButton    = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("238")).Padding(0, 1)
@@ -101,6 +102,9 @@ func relTime(t time.Time) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	case d < 7*24*time.Hour:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+	if t.Year() == time.Now().Year() {
+		return t.Local().Format("Jan 2")
 	}
 	return t.Local().Format("Jan 2, 2006")
 }
