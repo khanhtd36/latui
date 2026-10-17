@@ -322,7 +322,11 @@ func replace(exe string, bin []byte) error {
 	}
 	if runtime.GOOS == "windows" {
 		old := exe + ".old"
-		_ = os.Remove(old)
+		if os.Remove(old) != nil && fileExists(old) {
+			// A copy from an earlier update still runs and holds the name:
+			// park this one beside it.
+			old = fmt.Sprintf("%s.old-%d", exe, time.Now().UnixNano())
+		}
 		if err := os.Rename(exe, old); err != nil {
 			_ = os.Remove(next)
 			return err
@@ -336,8 +340,20 @@ func replace(exe string, bin []byte) error {
 	return os.Rename(next, exe) // Unix replaces a running file's name freely
 }
 
-// Cleanup removes the copy a previous update moved aside.
-func Cleanup(exe string) { _ = os.Remove(exe + ".old") }
+// Cleanup removes the copies previous updates moved aside; ones still
+// running stay until a later start.
+func Cleanup(exe string) {
+	_ = os.Remove(exe + ".old")
+	parked, _ := filepath.Glob(exe + ".old-*")
+	for _, p := range parked {
+		_ = os.Remove(p)
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // Step is how far an Install is: Done of Total bytes downloaded (Total is 0
 // when GitHub doesn't say), then the checksum check.
