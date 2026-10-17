@@ -197,7 +197,7 @@ func (m Model) issuesView() []string {
 	title := issueTabNames[p.tab]
 	if p.filter != nil {
 		title = "filter: " + p.filter.Name
-		head = styleDim.Render("  " + truncate(p.filter.JQL, m.width-20) + "  (esc back)")
+		head = styleDim.Render("  " + truncate(oneLine(p.filter.JQL), m.width-20) + "  (esc back)")
 	} else {
 		head = tabBar(p.tabLabels(), p.tab, m.width-30) + "   " + styleDim.Render("f favourite filters")
 	}

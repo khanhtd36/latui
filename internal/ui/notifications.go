@@ -67,7 +67,7 @@ type feedView struct {
 }
 
 func newNotesPage() *notesPage {
-	return &notesPage{views: [2]*feedView{{}, {}}}
+	return &notesPage{views: [2]*feedView{{}, {}}, unreadOnly: true}
 }
 
 type (

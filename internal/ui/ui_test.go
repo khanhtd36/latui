@@ -200,6 +200,10 @@ func screen(m Model) string { return ansi.Strip(m.View()) }
 
 func TestNotificationsShowGroups(t *testing.T) {
 	m := started(t, &fakeJira{issue: sampleIssue()}, sampleFeed())
+	if !m.notes.unreadOnly {
+		t.Fatal("Unread-only should be on by default")
+	}
+	m = run(t, m, key("u")) // show all
 	s := screen(m)
 	for _, want := range []string{
 		"2 Notifications (1)", "Direct 1", "Watching 1", "Today",
@@ -215,7 +219,6 @@ func TestNotificationsShowGroups(t *testing.T) {
 func TestUnreadFilterAndMarking(t *testing.T) {
 	f := sampleFeed()
 	m := started(t, &fakeJira{issue: sampleIssue()}, f)
-	m = run(t, m, key("u"))
 	if s := screen(m); strings.Contains(s, "Jo Tanaka") || !strings.Contains(s, "Priya Shah") {
 		t.Fatalf("unread filter should hide read groups:\n%s", s)
 	}
@@ -242,6 +245,7 @@ func TestTabSwitchesToWatching(t *testing.T) {
 func TestEnterOpensIssueDetail(t *testing.T) {
 	f := sampleFeed()
 	m := started(t, &fakeJira{issue: sampleIssue()}, f)
+	m = run(t, m, key("u")) // show all: the issue's notification is read
 	m = run(t, m, key("j"))
 	m = run(t, m, key("enter"))
 	if m.issue == nil || m.issue.key != "DEMO-42" {

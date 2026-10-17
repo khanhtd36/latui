@@ -71,8 +71,11 @@ func (m *Model) savePrefs() {
 type (
 	startMsg struct {
 		site auth.Credential
-		me   jira.User
 		err  error
+	}
+	meMsg struct {
+		me  jira.User
+		err error
 	}
 	tickMsg struct{}
 )
@@ -85,11 +88,7 @@ func (m Model) start() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 		defer cancel()
 		site, err := j.Site(ctx)
-		if err != nil {
-			return startMsg{err: err}
-		}
-		me, err := j.Myself(ctx)
-		return startMsg{site: site, me: me, err: err}
+		return startMsg{site: site, err: err}
 	}
 }
 
@@ -110,8 +109,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.startErr = msg.err
 			return m, nil
 		}
-		m.site, m.me, m.started, m.startErr = msg.site, msg.me, true, nil
-		return m, tea.Batch(m.notes.reloadAll(m.feed), m.issues.load(m.jira), m.tick())
+		// The lists don't need Me: load them while Me is asked for.
+		m.site, m.started, m.startErr = msg.site, true, nil
+		return m, tea.Batch(m.fetchMe(), m.notes.reloadAll(m.feed), m.issues.load(m.jira), m.tick())
+	case meMsg:
+		if msg.err != nil {
+			m.startErr = msg.err
+			return m, nil
+		}
+		m.me = msg.me
+		return m, nil
 	case tickMsg:
 		return m, tea.Batch(m.notes.refresh(m.feed), m.issues.refresh(m.jira), m.tick())
 	case searchMsg:
@@ -425,4 +432,14 @@ func (m Model) newIssueForm(parent string) (tea.Model, tea.Cmd) {
 	}
 	m.modal = c
 	return m, cmd
+}
+
+func (m Model) fetchMe() tea.Cmd {
+	j := m.jira
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+		defer cancel()
+		me, err := j.Myself(ctx)
+		return meMsg{me: me, err: err}
+	}
 }

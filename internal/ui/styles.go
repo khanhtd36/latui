@@ -109,7 +109,14 @@ func relTime(t time.Time) string {
 	return t.Local().Format("Jan 2, 2006")
 }
 
-func truncate(s string, w int) string { return ansi.Truncate(screenSafe(s), max(0, w), "…") }
+// truncate fits s on one line of w cells: line breaks become spaces, as a
+// break inside a row would push the whole screen down.
+func truncate(s string, w int) string {
+	if strings.ContainsAny(s, "\r\n") {
+		s = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s)
+	}
+	return ansi.Truncate(screenSafe(s), max(0, w), "…")
+}
 
 // fit truncates or pads to exactly w cells.
 func fit(s string, w int) string { return padRight(truncate(s, w), w) }
