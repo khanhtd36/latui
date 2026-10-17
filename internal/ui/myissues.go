@@ -45,6 +45,8 @@ type issuesPage struct {
 	// filterCollapsed are a filter view's closed Sections: all open at first,
 	// and not remembered.
 	filterCollapsed map[string]bool
+	// onFresh is told Assigned or Reported came in, for the cache.
+	onFresh func()
 }
 
 // issueList is one list of rows in Sections.
@@ -54,6 +56,7 @@ type issueList struct {
 	loading   bool
 	err       error
 	fetchedAt time.Time
+	cached    bool // rows are the last run's, until fresh ones come
 	gen       int
 
 	cursor int // index into lines()
@@ -160,7 +163,10 @@ func (p *issuesPage) onSearch(msg searchMsg) {
 		coll = p.filterCollapsed
 	}
 	was := l.selectedKey(coll)
-	l.rows, l.err, l.loaded, l.fetchedAt = msg.rows, nil, true, time.Now()
+	l.rows, l.err, l.loaded, l.cached, l.fetchedAt = msg.rows, nil, true, false, time.Now()
+	if p.onFresh != nil && msg.tab >= 0 {
+		p.onFresh()
+	}
 	l.keepCursor(was, coll)
 }
 
@@ -484,4 +490,26 @@ func (p *issuesPage) coll() map[string]bool {
 		return p.filterCollapsed
 	}
 	return p.collapsed
+}
+
+// showCached puts the last run's rows up until fresh ones come.
+func (p *issuesPage) showCached(tab int, rows []jira.Row, saved time.Time) {
+	l := p.views[tab]
+	if len(rows) == 0 || l.loaded {
+		return
+	}
+	l.rows, l.loaded, l.cached, l.fetchedAt = rows, true, true, saved
+}
+
+// loadStart loads the open tab, and any tab showing cached rows.
+func (p *issuesPage) loadStart(api jiraAPI) tea.Cmd {
+	var cmds []tea.Cmd
+	for i, l := range p.views {
+		if i == p.tab || l.cached {
+			l.gen++
+			l.loading = true
+			cmds = append(cmds, search(api, i, "", l.gen, issueTabJQL[i]))
+		}
+	}
+	return tea.Batch(cmds...)
 }

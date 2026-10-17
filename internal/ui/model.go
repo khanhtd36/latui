@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/khanhtd36/latui/internal/auth"
+	"github.com/khanhtd36/latui/internal/cache"
 	"github.com/khanhtd36/latui/internal/jira"
 	"github.com/khanhtd36/latui/internal/prefs"
 	"github.com/khanhtd36/latui/internal/update"
@@ -111,7 +112,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// The lists don't need Me: load them while Me is asked for.
 		m.site, m.started, m.startErr = msg.site, true, nil
-		return m, tea.Batch(m.fetchMe(), m.notes.reloadAll(m.feed), m.issues.load(m.jira), m.tick())
+		m.useCache()
+		return m, tea.Batch(m.fetchMe(), m.notes.reloadAll(m.feed), m.issues.loadStart(m.jira), m.tick())
 	case meMsg:
 		if msg.err != nil {
 			m.startErr = msg.err
@@ -151,8 +153,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case feedMsg:
 		return m, m.notes.onFeed(msg, m.feed)
-	case countMsg:
-		m.notes.onCount(msg)
+	case unseenMsg:
+		m.notes.onUnseen(msg)
 		return m, nil
 	case markedMsg:
 		if msg.err != nil {
@@ -442,4 +444,41 @@ func (m Model) fetchMe() tea.Cmd {
 		me, err := j.Myself(ctx)
 		return meMsg{me: me, err: err}
 	}
+}
+
+// useCache shows the last run's lists for this site at once, and keeps
+// the cache up to date as fresh lists come in.
+func (m *Model) useCache() {
+	snap := cache.Load(m.site.Site)
+	m.notes.showCached(0, snap.Direct, snap.Saved)
+	m.notes.showCached(1, snap.Watching, snap.Saved)
+	m.issues.showCached(tabAssigned, snap.Assigned, snap.Saved)
+	m.issues.showCached(tabReported, snap.Reported, snap.Saved)
+	notes, issues := m.notes, m.issues
+	save := func() {
+		// Only unread-only feeds are cached: that is what a start shows.
+		if notes.unreadOnly {
+			for i, v := range notes.views {
+				if v.loaded && !v.cached {
+					groups := v.groups[:min(len(v.groups), pageSize)]
+					if i == 0 {
+						snap.Direct = groups
+					} else {
+						snap.Watching = groups
+					}
+				}
+			}
+		}
+		for i, l := range issues.views {
+			if l.loaded && !l.cached {
+				if i == tabAssigned {
+					snap.Assigned = l.rows
+				} else {
+					snap.Reported = l.rows
+				}
+			}
+		}
+		_ = snap.Save() // losing the cache only costs the next start a wait
+	}
+	notes.onFresh, issues.onFresh = save, save
 }

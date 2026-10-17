@@ -14,6 +14,7 @@ import (
 
 	"github.com/khanhtd36/latui/internal/adf"
 	"github.com/khanhtd36/latui/internal/auth"
+	"github.com/khanhtd36/latui/internal/cache"
 	"github.com/khanhtd36/latui/internal/jira"
 	"github.com/khanhtd36/latui/internal/notify"
 	"github.com/khanhtd36/latui/internal/prefs"
@@ -186,6 +187,7 @@ func key(k string) tea.Msg { return keyMsg(k) }
 func init() {
 	tickAfter = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
 	prefs.SetFile(filepath.Join(os.TempDir(), fmt.Sprintf("latui-test-%d.json", os.Getpid())))
+	cache.SetFile(filepath.Join(os.TempDir(), fmt.Sprintf("latui-test-cache-%d.json", os.Getpid())))
 }
 
 func started(t *testing.T, j *fakeJira, f *fakeFeed) Model {

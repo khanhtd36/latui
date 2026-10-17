@@ -29,25 +29,11 @@ type notesPage struct {
 	tab        int // index into categories
 	unreadOnly bool
 	views      [2]*feedView
-	counts     [2]unreadCount
-}
-
-// unreadCount is how many unread groups a category has, up to a page.
-type unreadCount struct {
-	n     int
-	more  bool // at least n: the first page was full
-	known bool
-}
-
-func (c unreadCount) String() string {
-	if !c.known || c.n == 0 {
-		return ""
-	}
-	s := strconv.Itoa(c.n)
-	if c.more {
-		s += "+"
-	}
-	return s
+	// unseen is the bell's count, as Jira's web header shows it.
+	unseen      int
+	unseenKnown bool
+	// onFresh is told a list's first page came in, for the cache.
+	onFresh func()
 }
 
 // feedView is one category's list.
@@ -60,7 +46,8 @@ type feedView struct {
 	loadingMore bool
 	err         error
 	fetchedAt   time.Time
-	gen         int // bumps on every reload, to drop stale answers
+	cached      bool // groups are the last run's, until fresh ones come
+	gen         int  // bumps on every reload, to drop stale answers
 
 	cursor int // index into groups
 	offset int // first screen line shown
@@ -79,10 +66,9 @@ type (
 		err    error
 		unread bool
 	}
-	countMsg struct {
-		tab   int
-		count unreadCount
-		err   error
+	unseenMsg struct {
+		n   int
+		err error
 	}
 	markedMsg struct {
 		all bool
@@ -101,41 +87,46 @@ func fetchFeed(api feedAPI, tab, gen int, unread bool, after string) tea.Cmd {
 	}
 }
 
-func fetchCount(api feedAPI, tab int) tea.Cmd {
+// fetchUnseen asks for the bell's count: one cheap query, where a feed
+// takes seconds.
+func fetchUnseen(api feedAPI) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 		defer cancel()
-		page, err := api.Feed(ctx, categories[tab], true, pageSize, "")
-		n := 0
-		for _, g := range page.Groups {
-			if g.Unread {
-				n++
-			}
-		}
-		// The unread-filtered feed says it has more even when it hasn't: only
-		// a full page means there may be more.
-		return countMsg{tab: tab, count: unreadCount{n: n, more: page.HasMore && len(page.Groups) >= pageSize, known: err == nil}, err: err}
+		n, err := api.Unseen(ctx)
+		return unseenMsg{n: n, err: err}
 	}
 }
 
-// reloadAll empties both lists and loads the open one and both counts.
+// showCached puts the last run's groups up until fresh ones come.
+func (p *notesPage) showCached(tab int, groups []notify.Group, saved time.Time) {
+	v := p.views[tab]
+	if len(groups) == 0 || v.loaded {
+		return
+	}
+	v.groups, v.loaded, v.cached, v.fetchedAt = groups, true, true, saved
+}
+
+// reloadAll loads both lists and the bell's count; cached groups stay up
+// until the fresh ones replace them.
 func (p *notesPage) reloadAll(api feedAPI) tea.Cmd {
-	cmds := []tea.Cmd{fetchCount(api, 0), fetchCount(api, 1)}
+	cmds := make([]tea.Cmd, 0, len(p.views)+1)
+	cmds = append(cmds, fetchUnseen(api))
 	for i, v := range p.views {
 		v.gen++
-		*v = feedView{gen: v.gen}
-		if i == p.tab {
-			v.loading = true
-			cmds = append(cmds, fetchFeed(api, i, v.gen, p.unreadOnly, ""))
+		if !v.cached {
+			*v = feedView{gen: v.gen}
 		}
+		v.loading = true
+		cmds = append(cmds, fetchFeed(api, i, v.gen, p.unreadOnly, ""))
 	}
 	return tea.Batch(cmds...)
 }
 
 // refresh reloads the first page of the open list (and of the other one
-// once loaded) and the counts, keeping the cursor on the same group.
+// once loaded) and the bell's count, keeping the cursor on the same group.
 func (p *notesPage) refresh(api feedAPI) tea.Cmd {
-	cmds := []tea.Cmd{fetchCount(api, 0), fetchCount(api, 1)}
+	cmds := []tea.Cmd{fetchUnseen(api)}
 	for i, v := range p.views {
 		if i != p.tab && !v.loaded {
 			continue
@@ -147,9 +138,9 @@ func (p *notesPage) refresh(api feedAPI) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (p *notesPage) onCount(msg countMsg) {
+func (p *notesPage) onUnseen(msg unseenMsg) {
 	if msg.err == nil {
-		p.counts[msg.tab] = msg.count
+		p.unseen, p.unseenKnown = msg.n, true
 	}
 }
 
@@ -174,9 +165,10 @@ func (p *notesPage) onFeed(msg feedMsg, api feedAPI) tea.Cmd {
 		return nil
 	}
 	was := v.selected()
-	v.err, v.loaded, v.fetchedAt = nil, true, time.Now()
+	wasCached := v.cached
+	v.err, v.loaded, v.cached, v.fetchedAt = nil, true, false, time.Now()
 	fresh := msg.page.Groups
-	if len(v.groups) > len(fresh) && len(fresh) > 0 {
+	if !wasCached && len(v.groups) > len(fresh) && len(fresh) > 0 {
 		// Keep the older groups loaded beyond the first page.
 		last := fresh[len(fresh)-1].Head.Time
 		var older []notify.Group
@@ -189,8 +181,14 @@ func (p *notesPage) onFeed(msg feedMsg, api feedAPI) tea.Cmd {
 	} else {
 		v.after, v.hasMore = msg.page.After, msg.page.HasMore
 	}
+	if wasCached {
+		v.after, v.hasMore = msg.page.After, msg.page.HasMore
+	}
 	v.groups = fresh
 	v.keepCursor(was)
+	if p.onFresh != nil {
+		p.onFresh()
+	}
 	return p.loadMoreIfNear(api)
 }
 
@@ -272,14 +270,10 @@ func (p *notesPage) key(msg tea.KeyMsg, api feedAPI, height int) tea.Cmd {
 		return p.switchTab(api, 1-p.tab)
 	case "u":
 		p.unreadOnly = !p.unreadOnly
-		for i, fv := range p.views {
-			fv.gen++
-			*fv = feedView{gen: fv.gen}
-			if i == p.tab {
-				fv.loading = true
-			}
+		for _, fv := range p.views {
+			fv.cached = false // cached lists are unread-only: start over
 		}
-		return fetchFeed(api, p.tab, p.view().gen, p.unreadOnly, "")
+		return p.reloadAll(api)
 	case "r":
 		return p.refresh(api)
 	case "m":
@@ -324,14 +318,6 @@ func (p *notesPage) key(msg tea.KeyMsg, api feedAPI, height int) tea.Cmd {
 // failure reloads the list.
 func (p *notesPage) mark(api feedAPI, g *notify.Group, read bool) tea.Cmd {
 	g.Unread, g.Head.Unread = !read, !read
-	c := &p.counts[p.tab]
-	if c.known {
-		if read {
-			c.n = max(0, c.n-1)
-		} else {
-			c.n++
-		}
-	}
 	group := *g
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
@@ -555,9 +541,28 @@ func (p *notesPage) tabLabels() []string {
 	labels := make([]string, len(categories))
 	for i, c := range categories {
 		labels[i] = categoryTitle(c)
-		if n := p.counts[i].String(); n != "" {
+		if n := p.views[i].unreadCount(); n != "" {
 			labels[i] += " " + n
 		}
 	}
 	return labels
+}
+
+// unreadCount is how many loaded groups are unread, "50+" when the
+// unread-only list has more pages; "" before loading or at zero.
+func (v *feedView) unreadCount() string {
+	n := 0
+	for _, g := range v.groups {
+		if g.Unread {
+			n++
+		}
+	}
+	if !v.loaded || n == 0 {
+		return ""
+	}
+	s := strconv.Itoa(n)
+	if v.hasMore && len(v.groups) >= pageSize {
+		s += "+"
+	}
+	return s
 }

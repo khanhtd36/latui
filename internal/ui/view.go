@@ -49,8 +49,8 @@ func (m Model) View() string {
 
 func (m Model) pageLabels() []string {
 	label := "2 Notifications"
-	if c := m.notes.counts[0].String(); c != "" {
-		label += " (" + c + ")"
+	if m.notes.unseenKnown && m.notes.unseen > 0 {
+		label += fmt.Sprintf(" (%d)", m.notes.unseen)
 	}
 	issues := "1 My issues"
 	if l := m.issues.views[tabAssigned]; l.loaded {
@@ -72,17 +72,19 @@ func (m Model) titleLine() string {
 	if m.me.DisplayName != "" {
 		s += styleDim.Render(" · " + m.me.DisplayName)
 	}
-	loading, at := false, m.notes.view().fetchedAt
-	if v := m.notes.view(); v.loading || v.loadingMore {
-		loading = true
-	}
+	v := m.notes.view()
+	loading, cached, at := v.loading || v.loadingMore, v.cached, v.fetchedAt
 	if m.page == pageIssues {
 		l := m.issues.list()
-		loading, at = l.loading, l.fetchedAt
+		loading, cached, at = l.loading, l.cached, l.fetchedAt
 	}
-	if loading {
+	switch {
+	case cached:
+		// The last run's list: say how old it is while the fresh one loads.
+		s += styleYellow.Render("  cached " + at.Local().Format("Jan 2 15:04") + pick2(loading, " · refreshing…", ""))
+	case loading:
 		s += styleYellow.Render("  refreshing…")
-	} else if !at.IsZero() {
+	case !at.IsZero():
 		s += styleDim.Render("  updated " + at.Format("15:04:05"))
 	}
 	return truncate(s+m.updateNote(), m.width)

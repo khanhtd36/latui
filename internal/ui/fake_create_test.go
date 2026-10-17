@@ -63,3 +63,5 @@ func (f *fakeJira) ProjectUsers(context.Context, string, string) ([]jira.User, e
 func (f *fakeJira) OpenEpics(context.Context, string) ([]jira.Row, error) {
 	return []jira.Row{{Key: "QA-1", Summary: "Faster exports"}}, nil
 }
+
+func (f *fakeFeed) Unseen(context.Context) (int, error) { return 1, nil }

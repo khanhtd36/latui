@@ -42,4 +42,5 @@ type feedAPI interface {
 	Feed(ctx context.Context, cat notify.Category, unreadOnly bool, first int, after string) (notify.Page, error)
 	MarkGroup(ctx context.Context, g notify.Group, read bool) error
 	MarkAllRead(ctx context.Context, cat notify.Category) error
+	Unseen(ctx context.Context) (int, error)
 }
