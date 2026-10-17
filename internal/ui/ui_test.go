@@ -192,7 +192,8 @@ func started(t *testing.T, j *fakeJira, f *fakeFeed) Model {
 	t.Helper()
 	m := New(j, f, time.Minute)
 	m = run(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
-	return run(t, m, m.start()())
+	m = run(t, m, m.start()())
+	return run(t, m, key("2")) // most tests here are about Notifications
 }
 
 func screen(m Model) string { return ansi.Strip(m.View()) }
@@ -201,7 +202,7 @@ func TestNotificationsShowGroups(t *testing.T) {
 	m := started(t, &fakeJira{issue: sampleIssue()}, sampleFeed())
 	s := screen(m)
 	for _, want := range []string{
-		"1 Notifications (1)", "Direct 1", "Watching 1", "Today",
+		"2 Notifications (1)", "Direct 1", "Watching 1", "Today",
 		"Priya Shah mentioned you on a page", "+2", "Confluence · Quality Assurance",
 		"DEMO-42 · In Progress", "│ Memory stays flat with streaming",
 	} {

@@ -100,8 +100,8 @@ The same keys mean the same thing everywhere, as in lazdo: `j`/`k` move,
 goes back, `y` copy menu, `o` browser, `r` refresh, `?` help (type to search
 it, `enter` runs the key), `q` quit.
 
-![Notifications](docs/screenshots/1-notifications.png)
 ![My issues](docs/screenshots/4-my-issues.png)
+![Notifications](docs/screenshots/1-notifications.png)
 ![Issue detail](docs/screenshots/2-issue.png)
 ![New issue](docs/screenshots/5-create.png)
 
@@ -125,7 +125,7 @@ it, `enter` runs the key), `q` quit.
 
 | Anywhere | |
 |---|---|
-| `1` / `2`, `[` / `]` | Notifications / My issues page |
+| `1` / `2`, `[` / `]` | My issues / Notifications page |
 | `n` | new issue (in Issue detail: or a subtask of it) |
 | `ctrl+g` | go to an issue |
 

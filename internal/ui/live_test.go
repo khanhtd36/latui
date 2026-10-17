@@ -31,8 +31,9 @@ func TestLive(t *testing.T) {
 	if v := m.notes.view(); v.err != nil {
 		t.Fatal(v.err)
 	}
-	save(t, "notifications", m.View())
 	m = run(t, m, key("2"))
+	save(t, "notifications", m.View())
+	m = run(t, m, key("1"))
 	if l := m.issues.list(); l.err != nil {
 		t.Fatal(l.err)
 	}
@@ -43,7 +44,7 @@ func TestLive(t *testing.T) {
 	}
 	save(t, "create", m.View())
 	m = run(t, m, key("esc"))
-	m = run(t, m, key("1"))
+	m = run(t, m, key("2"))
 	m = run(t, m, key("tab"))
 	save(t, "watching", m.View())
 	m = run(t, m, key("tab"))

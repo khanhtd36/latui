@@ -30,7 +30,7 @@ type Model struct {
 
 	width, height int
 
-	page   int // pageNotifications or pageIssues
+	page   int // pageIssues or pageNotifications
 	notes  *notesPage
 	issues *issuesPage
 	issue  *issueModel // non-nil while Issue detail is open
@@ -52,8 +52,8 @@ type Model struct {
 
 // Pages.
 const (
-	pageNotifications = iota
-	pageIssues
+	pageIssues = iota
+	pageNotifications
 	pageCount
 )
 

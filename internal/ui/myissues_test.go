@@ -31,9 +31,9 @@ func issuesJira() *fakeJira {
 func TestMyIssuesSections(t *testing.T) {
 	j := issuesJira()
 	m := started(t, j, sampleFeed())
-	m = run(t, m, key("2"))
+	m = run(t, m, key("1"))
 	s := screen(m)
-	for _, want := range []string{"2 My issues (4)", "Assigned 4", "Reported", "▾ In Progress (2)", "▾ To Do (1)", "▸ Deferred (1)"} {
+	for _, want := range []string{"1 My issues (4)", "Assigned 4", "Reported", "▾ In Progress (2)", "▾ To Do (1)", "▸ Deferred (1)"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("screen lacks %q:\n%s", want, s)
 		}
@@ -69,7 +69,7 @@ func TestMyIssuesSections(t *testing.T) {
 func TestRowActionRunsIssueKey(t *testing.T) {
 	j := issuesJira()
 	m := started(t, j, sampleFeed())
-	m = run(t, m, key("2"))
+	m = run(t, m, key("1"))
 	m = run(t, m, key("j")) // the first issue under In Progress
 	m = run(t, m, key("A"))
 	if _, ok := m.modal.(*pickerModal); !ok {

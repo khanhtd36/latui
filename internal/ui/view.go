@@ -48,15 +48,15 @@ func (m Model) View() string {
 }
 
 func (m Model) pageLabels() []string {
-	label := "1 Notifications"
+	label := "2 Notifications"
 	if c := m.notes.counts[0].String(); c != "" {
 		label += " (" + c + ")"
 	}
-	issues := "2 My issues"
+	issues := "1 My issues"
 	if l := m.issues.views[tabAssigned]; l.loaded {
 		issues += fmt.Sprintf(" (%d)", len(l.rows))
 	}
-	return []string{label, issues}
+	return []string{issues, label}
 }
 
 func (m Model) titleLine() string {

@@ -44,7 +44,7 @@ var (
 		{keys: "r", desc: "refresh", press: "r", hint: "refresh"},
 	}
 	pageKeys = []binding{
-		{keys: "1 / 2", desc: "Notifications / My issues page", hint: "pages"},
+		{keys: "1 / 2", desc: "My issues / Notifications page", hint: "pages"},
 		{keys: "[ / ]", desc: "previous / next page", press: "]"},
 		{keys: "n", desc: "new issue (in Issue detail: or a subtask of it)", press: "n", hint: "new"},
 		{keys: "ctrl+g", desc: "go to an issue by key, number or link", press: "ctrl+g", hint: "go to"},

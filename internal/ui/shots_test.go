@@ -87,6 +87,10 @@ func TestShots(t *testing.T) {
 	}
 	m.me.DisplayName = "Alex Kim"
 	m.site.Site = "demo.atlassian.net"
+	for _, l := range m.issues.views {
+		l.fetchedAt = time.Date(2026, 10, 10, 9, 41, 0, 0, time.Local)
+	}
+	m = run(t, m, key("2"))
 	save("1-notifications", m.View())
 
 	m = run(t, m, openIssueMsg{key: "DEMO-1204"})
@@ -95,7 +99,7 @@ func TestShots(t *testing.T) {
 	m = run(t, m, key("t"))
 	save("3-transition", m.View())
 	m.modal, m.issue = nil, nil
-	m = run(t, m, key("2"))
+	m = run(t, m, key("1"))
 	save("4-my-issues", m.View())
 	m = run(t, m, key("n"))
 	save("5-create", m.View())
