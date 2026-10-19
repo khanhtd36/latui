@@ -94,6 +94,9 @@ func (d *issueModel) headerLines(width int) []string {
 	if d.saving != "" {
 		line2 += styleYellow.Render("  saving " + d.saving + "…")
 	}
+	if d.refreshErr != nil {
+		line2 += styleRed.Render("  refresh failed: " + d.refreshErr.Error())
+	}
 	if len(d.back) > 0 {
 		line2 += styleDim.Render("  (esc back to " + d.back[len(d.back)-1] + ")")
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -37,16 +38,20 @@ type issueModel struct {
 	key  string
 	back []string // issues a link was followed from, oldest first
 
-	issue    *jira.Issue
-	err      error
-	comments []jira.Comment
-	cErr     error
-	cLoaded  bool
-	history  []jira.HistoryEntry
-	hErr     error
-	hLoaded  bool
-	saving   string // what a write in flight changes, for the title
-	pending  string // a key to run once the issue loads (a My issues row action)
+	issue       *jira.Issue
+	err         error
+	comments    []jira.Comment
+	cErr        error
+	cLoaded     bool
+	history     []jira.HistoryEntry
+	hErr        error
+	hLoaded     bool
+	transitions []jira.Transition
+	tLoaded     bool
+	loadedAt    time.Time // when the last load started, to skip needless prefetches
+	refreshErr  error     // a background refresh failed; the shown data is older
+	saving      string    // what a write in flight changes, for the title
+	pending     string    // a key to run once the issue loads (a My issues row action)
 
 	focus  int
 	tab    int
@@ -67,7 +72,8 @@ type (
 		issue    *jira.Issue
 		comments []jira.Comment
 		history  []jira.HistoryEntry
-		part     int // which of the three
+		trans    []jira.Transition
+		part     int // which of the four
 		err      error
 	}
 	// writtenMsg is a finished edit.
@@ -87,10 +93,14 @@ const (
 	partIssue = iota
 	partComments
 	partHistory
+	partTransitions
 )
 
+// load fetches every part of the issue at once, transitions included so
+// that t opens without a wait.
 func (d *issueModel) load() tea.Cmd {
-	return tea.Batch(d.fetch(partIssue), d.fetch(partComments), d.fetch(partHistory))
+	d.loadedAt = time.Now()
+	return tea.Batch(d.fetch(partIssue), d.fetch(partComments), d.fetch(partHistory), d.fetch(partTransitions))
 }
 
 func (d *issueModel) fetch(part int) tea.Cmd {
@@ -106,6 +116,8 @@ func (d *issueModel) fetch(part int) tea.Cmd {
 			msg.comments, msg.err = api.Comments(ctx, key)
 		case partHistory:
 			msg.history, msg.err = api.History(ctx, key)
+		case partTransitions:
+			msg.trans, msg.err = api.Transitions(ctx, key)
 		}
 		return msg
 	}
@@ -117,14 +129,22 @@ func (d *issueModel) update(msg issueMsg) {
 	}
 	switch msg.part {
 	case partIssue:
-		d.issue, d.err = msg.issue, msg.err
-		if msg.err == nil {
-			d.err = nil
+		switch {
+		case msg.err == nil:
+			d.issue, d.err, d.refreshErr = msg.issue, nil, nil
+		case d.issue != nil:
+			d.refreshErr = msg.err // keep showing what was loaded before
+		default:
+			d.err = msg.err
 		}
 	case partComments:
 		d.comments, d.cErr, d.cLoaded = msg.comments, msg.err, true
 	case partHistory:
 		d.history, d.hErr, d.hLoaded = msg.history, msg.err, true
+	case partTransitions:
+		if msg.err == nil {
+			d.transitions, d.tLoaded = msg.trans, true
+		}
 	}
 }
 
@@ -135,7 +155,7 @@ func (d *issueModel) afterWrite(msg writtenMsg) tea.Cmd {
 	if msg.err != nil {
 		return nil
 	}
-	cmds := []tea.Cmd{d.fetch(partIssue), d.fetch(partHistory)}
+	cmds := []tea.Cmd{d.fetch(partIssue), d.fetch(partHistory), d.fetch(partTransitions)}
 	if msg.comment {
 		cmds = append(cmds, d.fetch(partComments))
 		d.tab, d.scroll[paneActivity] = tabComments, 0
@@ -218,6 +238,9 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 	}
 	switch k {
 	case "t":
+		if d.tLoaded {
+			return showModal(d.transitionMenu(d.transitions))
+		}
 		return d.fetchTransitions()
 	case "c":
 		return showModal(newEditor("Comment on "+d.key, "", width, func(text string) tea.Cmd {

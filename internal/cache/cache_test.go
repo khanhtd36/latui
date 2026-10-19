@@ -29,3 +29,21 @@ func TestSaveLoadPerSite(t *testing.T) {
 		t.Errorf("another site's lists leaked: %+v", other)
 	}
 }
+
+func TestMetasRoundTrip(t *testing.T) {
+	SetFile(filepath.Join(t.TempDir(), "latui", "lists.json"))
+	m := LoadMetas("a.atlassian.net")
+	p := m.Project("QA")
+	p.Types = []jira.IssueType{{ID: "1", Name: "Bug"}}
+	p.Fields["1"] = []jira.CreateField{{ID: "components", Name: "Components", Schema: jira.FieldSchema{Type: "array", Items: "component"}}}
+	if err := m.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got := LoadMetas("a.atlassian.net")
+	if !got.Has("QA") || got.Project("QA").Fields["1"][0].Schema.Items != "component" {
+		t.Errorf("got %+v", got.Projects["QA"])
+	}
+	if LoadMetas("b.atlassian.net").Has("QA") {
+		t.Error("another site's metadata leaked")
+	}
+}

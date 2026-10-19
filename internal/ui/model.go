@@ -37,9 +37,15 @@ type Model struct {
 	issue  *issueModel // non-nil while Issue detail is open
 	// rowIssue runs an Issue detail key on a My issues row, unseen.
 	rowIssue *issueModel
-	help     *helpModal
-	modal    modal
-	prefs    *prefs.Prefs // shared by every copy of the Model
+	// known are the issues loaded this run, by key: opening one shows it at
+	// once while it refreshes. Prefetching the row under the cursor fills it.
+	knownIssues map[string]*issueModel
+	metas       *cache.Metas // the create form's saved metadata
+	hoverKey    string       // the issue under the cursor, for prefetching
+	hoverSeq    int
+	help        *helpModal
+	modal       modal
+	prefs       *prefs.Prefs // shared by every copy of the Model
 
 	status      string
 	lastProject string // for ctrl+g with a bare number
@@ -60,7 +66,7 @@ const (
 
 func New(j jiraAPI, f feedAPI, interval time.Duration) Model {
 	p := prefs.Load()
-	return Model{jira: j, feed: f, interval: interval, notes: newNotesPage(), issues: newIssuesPage(p), prefs: &p}
+	return Model{jira: j, feed: f, interval: interval, notes: newNotesPage(), issues: newIssuesPage(p), prefs: &p, knownIssues: map[string]*issueModel{}}
 }
 
 // savePrefs writes what latui remembers; a failure only loses the memory.
@@ -113,7 +119,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The lists don't need Me: load them while Me is asked for.
 		m.site, m.started, m.startErr = msg.site, true, nil
 		m.useCache()
-		return m, tea.Batch(m.fetchMe(), m.notes.reloadAll(m.feed), m.issues.loadStart(m.jira), m.tick())
+		cmds := []tea.Cmd{m.fetchMe(), m.notes.reloadAll(m.feed), m.issues.loadStart(m.jira), m.tick()}
+		if p := m.prefs.LastProject; p != "" {
+			// Ready the create form for the project used last.
+			cmds = append(cmds, fetchMeta(m.jira, p, m.prefs.LastType))
+		}
+		return m, tea.Batch(cmds...)
 	case meMsg:
 		if msg.err != nil {
 			m.startErr = msg.err
@@ -125,7 +136,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.notes.refresh(m.feed), m.issues.refresh(m.jira), m.tick())
 	case searchMsg:
 		m.issues.onSearch(msg)
-		return m, nil
+		return m.hover()
 	case issuesChangedMsg:
 		return m, m.issues.refresh(m.jira)
 	case filtersMsg:
@@ -136,10 +147,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modal = m.issues.filterMenu(msg.filters, m.jira)
 		return m, nil
 	case rowActionMsg:
-		m.rowIssue = newIssue(m.jira, m.site, m.me, msg.key)
-		m.rowIssue.pending = msg.action
-		return m, m.rowIssue.fetch(partIssue)
+		d := m.known(msg.key)
+		m.rowIssue = d
+		if d.issue != nil { // prefetched: act at once
+			return m, d.onKey(keyMsg(msg.action), m.width, m.bodyHeight())
+		}
+		d.pending = msg.action
+		return m, d.load()
+	case prefetchMsg:
+		if msg.seq != m.hoverSeq {
+			return m, nil // the cursor moved on
+		}
+		if d := m.known(msg.key); d.issue == nil || time.Since(d.loadedAt) > prefetchFresh {
+			return m, d.load()
+		}
+		return m, nil
 	case createDataMsg:
+		remember(m.metas, msg)
 		if c, ok := m.modal.(*createModal); ok {
 			return m, c.data(msg)
 		}
@@ -152,7 +176,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case feedMsg:
-		return m, m.notes.onFeed(msg, m.feed)
+		cmd := m.notes.onFeed(msg, m.feed)
+		m, hover := m.hover()
+		return m, tea.Batch(cmd, hover)
 	case unseenMsg:
 		m.notes.onUnseen(msg)
 		return m, nil
@@ -166,11 +192,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case issueMsg:
-		if m.issue != nil {
-			m.issue.update(msg)
+		d, ok := m.knownIssues[msg.key]
+		if !ok {
+			return m, nil
 		}
-		if r := m.rowIssue; r != nil && r.key == msg.key && msg.part == partIssue {
-			r.update(msg)
+		d.update(msg)
+		if r := m.rowIssue; r == d && r.pending != "" && msg.part == partIssue {
 			if r.err != nil {
 				m.status, m.rowIssue = "error: "+r.err.Error(), nil
 				return m, nil
@@ -187,8 +214,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = msg.done
 		}
 		cmds := []tea.Cmd{m.issues.refresh(m.jira)}
-		if m.issue != nil && m.issue.key == msg.key {
-			cmds = append(cmds, m.issue.afterWrite(msg))
+		if d, ok := m.knownIssues[msg.key]; ok {
+			cmds = append(cmds, d.afterWrite(msg))
 		}
 		return m, tea.Batch(cmds...)
 	case transitionsMsg:
@@ -200,6 +227,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "error: " + msg.err.Error()
 			return m, nil
 		}
+		d.transitions, d.tLoaded = msg.transitions, true
 		m.modal = d.transitionMenu(msg.transitions)
 		return m, nil
 	case pickerResultsMsg:
@@ -258,16 +286,16 @@ func (m Model) openIssue(key string) (tea.Model, tea.Cmd) {
 	if p := jira.ProjectOf(key); p != "" {
 		m.lastProject = p
 	}
+	var back []string
 	if m.issue != nil {
 		if m.issue.key == key {
 			return m, nil
 		}
-		back := append(m.issue.back, m.issue.key)
-		m.issue = newIssue(m.jira, m.site, m.me, key)
-		m.issue.back = back
-	} else {
-		m.issue = newIssue(m.jira, m.site, m.me, key)
+		back = append(append([]string(nil), m.issue.back...), m.issue.key)
 	}
+	// A known issue shows at once; it refreshes all the same.
+	m.issue = m.known(key)
+	m.issue.back = back
 	m.status = ""
 	return m, m.issue.load()
 }
@@ -349,8 +377,8 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if k == "esc" && !m.issue.inner() {
 			// Back to the issue a link was followed from, else the list.
 			if n := len(m.issue.back); n > 0 {
-				back := m.issue.back[:n-1]
-				m.issue = newIssue(m.jira, m.site, m.me, m.issue.back[n-1])
+				back, prev := m.issue.back[:n-1], m.issue.back[n-1]
+				m.issue = m.known(prev)
 				m.issue.back = back
 				return m, m.issue.load()
 			}
@@ -359,10 +387,14 @@ func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.issue.onKey(msg, m.width, m.bodyHeight())
 	}
+	var cmd tea.Cmd
 	if m.page == pageIssues {
-		return m, m.issues.key(msg, m.jira, m.site.Site, m.bodyHeight(), m.savePrefs)
+		cmd = m.issues.key(msg, m.jira, m.site.Site, m.bodyHeight(), m.savePrefs)
+	} else {
+		cmd = m.notes.key(msg, m.feed, m.bodyHeight())
 	}
-	return m, m.notes.key(msg, m.feed, m.bodyHeight())
+	m, hover := m.hover()
+	return m, tea.Batch(cmd, hover)
 }
 
 // newFormMsg opens the create form, for a subtask when parent is set.
@@ -400,15 +432,7 @@ func signInHelp(err error) []string {
 
 // issueFor is the Issue detail model a reply for key belongs to: the open
 // issue's, or the one acting on a My issues row.
-func (m Model) issueFor(key string) *issueModel {
-	switch {
-	case m.issue != nil && m.issue.key == key:
-		return m.issue
-	case m.rowIssue != nil && m.rowIssue.key == key:
-		return m.rowIssue
-	}
-	return nil
-}
+func (m Model) issueFor(key string) *issueModel { return m.knownIssues[key] }
 
 // newIssueForm opens the create form, starting from the last project and
 // type used, else the project of the issue on screen.
@@ -419,7 +443,7 @@ func (m Model) newIssueForm(parent string) (tea.Model, tea.Cmd) {
 	} else if m.issue != nil && o.project == "" {
 		o.project = jira.ProjectOf(m.issue.key)
 	}
-	c, cmd := newCreate(m.jira, m.me, m.site.Site, o)
+	c, cmd := newCreate(m.jira, m.me, m.site.Site, m.metas, o)
 	prefsRef := m.prefs
 	c.onAnother = func(on bool) {
 		prefsRef.CreateAnother = on
@@ -450,6 +474,7 @@ func (m Model) fetchMe() tea.Cmd {
 // the cache up to date as fresh lists come in.
 func (m *Model) useCache() {
 	snap := cache.Load(m.site.Site)
+	m.metas = cache.LoadMetas(m.site.Site)
 	m.notes.showCached(0, snap.Direct, snap.Saved)
 	m.notes.showCached(1, snap.Watching, snap.Saved)
 	m.issues.showCached(tabAssigned, snap.Assigned, snap.Saved)
@@ -481,4 +506,79 @@ func (m *Model) useCache() {
 		_ = snap.Save() // losing the cache only costs the next start a wait
 	}
 	notes.onFresh, issues.onFresh = save, save
+}
+
+// maxKnown caps how many issues stay in memory.
+const maxKnown = 50
+
+// known is the issue's model, kept for the run: made on first use, the
+// longest unused one dropped past maxKnown.
+func (m Model) known(key string) *issueModel {
+	if d, ok := m.knownIssues[key]; ok {
+		return d
+	}
+	if len(m.knownIssues) >= maxKnown {
+		oldest := ""
+		for k, d := range m.knownIssues {
+			if d == m.issue || d == m.rowIssue {
+				continue
+			}
+			if oldest == "" || d.loadedAt.Before(m.knownIssues[oldest].loadedAt) {
+				oldest = k
+			}
+		}
+		delete(m.knownIssues, oldest)
+	}
+	d := newIssue(m.jira, m.site, m.me, key)
+	m.knownIssues[key] = d
+	return d
+}
+
+// prefetchMsg loads the issue the cursor rested on.
+type prefetchMsg struct {
+	key string
+	seq int
+}
+
+const (
+	// prefetchDelay is how long the cursor must rest on a row before its
+	// issue loads: moving through a list asks for nothing.
+	prefetchDelay = 300 * time.Millisecond
+	// prefetchFresh is how recent a load must be to skip another.
+	prefetchFresh = time.Minute
+)
+
+// prefetchAfter schedules a prefetch; tests replace it.
+var prefetchAfter = tea.Tick
+
+// hovered is the Jira issue under the cursor of the page on screen.
+func (m Model) hovered() string {
+	if m.issue != nil || m.modal != nil {
+		return ""
+	}
+	if m.page == pageIssues {
+		if line, ok := m.issues.list().selected(m.issues.coll()); ok && line.row != nil {
+			return line.row.Key
+		}
+		return ""
+	}
+	if g := m.notes.view().selected(); g != nil {
+		return g.Head.Key
+	}
+	return ""
+}
+
+// hover starts the prefetch delay when the cursor lands on another issue.
+func (m Model) hover() (Model, tea.Cmd) {
+	key := m.hovered()
+	if key == m.hoverKey {
+		return m, nil
+	}
+	m.hoverKey = key
+	m.hoverSeq++
+	if key == "" {
+		return m, nil
+	}
+	msg := prefetchMsg{key: key, seq: m.hoverSeq}
+	return m, prefetchAfter(prefetchDelay, func(time.Time) tea.Msg { return msg })
 }

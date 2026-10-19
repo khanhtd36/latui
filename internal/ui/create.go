@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/khanhtd36/latui/internal/cache"
 	"github.com/khanhtd36/latui/internal/jira"
 )
 
@@ -63,6 +64,7 @@ type createModal struct {
 	types    []jira.IssueType
 	typeID   string
 	fields   map[string]jira.CreateField // of the chosen type, by ID
+	metas    *cache.Metas                // saved metadata, shared with the root
 	statuses map[string][]jira.StatusOption
 	loading  string // what is on its way, for the form's note
 	err      error
@@ -116,7 +118,7 @@ type createOptions struct {
 	another         bool
 }
 
-func newCreate(api jiraAPI, me jira.User, site string, o createOptions) (*createModal, tea.Cmd) {
+func newCreate(api jiraAPI, me jira.User, site string, metas *cache.Metas, o createOptions) (*createModal, tea.Cmd) {
 	sum := textinput.New()
 	sum.Prompt = ""
 	sum.Placeholder = "what needs doing"
@@ -129,15 +131,15 @@ func newCreate(api jiraAPI, me jira.User, site string, o createOptions) (*create
 	desc.SetHeight(5)
 	desc.Cursor.SetMode(cursor.CursorStatic)
 	c := &createModal{
-		api: api, me: me, site: site, project: o.project, defaultType: o.typeID,
+		api: api, me: me, site: site, metas: metas, defaultType: o.typeID,
 		summary: sum, desc: desc, another: o.another,
 		fixedParent: o.parent, parent: o.parent, wantSubtask: o.parent != "",
 		assignee: pickOption{label: "Automatic"},
 	}
 	c.setFocus(focusSummary)
 	cmds := []tea.Cmd{c.fetchProjects()}
-	if c.project != "" {
-		cmds = append(cmds, c.fetchTypes(c.project))
+	if o.project != "" {
+		cmds = append(cmds, c.useProject(o.project))
 	}
 	return c, tea.Batch(cmds...)
 }
@@ -152,24 +154,33 @@ func (c *createModal) fetchProjects() tea.Cmd {
 	}
 }
 
-func (c *createModal) fetchTypes(project string) tea.Cmd {
-	c.loading = "types"
-	api := c.api
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-		defer cancel()
-		ts, err := api.CreateTypes(ctx, project)
-		if err != nil {
-			return createDataMsg{project: project, err: err}
-		}
-		statuses, _ := api.TypeStatuses(ctx, project) // optional: no Status chip without it
-		return createDataMsg{project: project, types: ts, statuses: statuses}
+// fetchMeta asks for a project's types and statuses at once, and for one
+// type's fields when typeID is set.
+func fetchMeta(api jiraAPI, project, typeID string) tea.Cmd {
+	cmds := []tea.Cmd{
+		func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+			defer cancel()
+			ts, err := api.CreateTypes(ctx, project)
+			return createDataMsg{project: project, types: ts, err: err}
+		},
+		func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+			defer cancel()
+			st, err := api.TypeStatuses(ctx, project)
+			if err != nil {
+				return nil // optional: no Status chip without it
+			}
+			return createDataMsg{project: project, statuses: st}
+		},
 	}
+	if typeID != "" {
+		cmds = append(cmds, fetchFields(api, project, typeID))
+	}
+	return tea.Batch(cmds...)
 }
 
-func (c *createModal) fetchFields(project, typeID string) tea.Cmd {
-	c.loading = "fields"
-	api := c.api
+func fetchFields(api jiraAPI, project, typeID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 		defer cancel()
@@ -178,35 +189,101 @@ func (c *createModal) fetchFields(project, typeID string) tea.Cmd {
 	}
 }
 
+// useProject switches the form to a project: what is saved about it shows
+// at once, and fresh metadata is asked for all the same.
+func (c *createModal) useProject(project string) tea.Cmd {
+	c.project, c.types, c.fields, c.statuses, c.typeID, c.err = project, nil, nil, nil, "", nil
+	if c.metas != nil && c.metas.Has(project) {
+		meta := c.metas.Project(project)
+		c.types, c.statuses = meta.Types, meta.Statuses
+		c.typeID = c.pickType()
+		c.setFields(meta.Fields[c.typeID])
+	}
+	if c.fields == nil {
+		c.loading = "the form"
+	}
+	return fetchMeta(c.api, project, c.typeID)
+}
+
+// useType switches the form to an issue type, from saved fields when known.
+func (c *createModal) useType(typeID string) tea.Cmd {
+	c.typeID, c.fields = typeID, nil
+	if c.metas != nil {
+		c.setFields(c.metas.Project(c.project).Fields[typeID])
+	}
+	if c.fields == nil {
+		c.loading = "fields"
+	}
+	return fetchFields(c.api, c.project, typeID)
+}
+
+func (c *createModal) setFields(fs []jira.CreateField) {
+	if fs == nil {
+		return
+	}
+	c.fields = map[string]jira.CreateField{}
+	for _, f := range fs {
+		c.fields[f.ID] = f
+	}
+	c.loading = ""
+	c.dropMissing()
+}
+
+// remember saves fresh metadata for the next form; the root calls it for
+// every createDataMsg, so a prefetch at start fills it too.
+func remember(metas *cache.Metas, msg createDataMsg) {
+	if metas == nil || msg.err != nil || msg.project == "" {
+		return
+	}
+	meta := metas.Project(msg.project)
+	switch {
+	case msg.types != nil:
+		meta.Types = msg.types
+	case msg.statuses != nil:
+		meta.Statuses = msg.statuses
+	case msg.fields != nil:
+		meta.Fields[msg.typeID] = msg.fields
+	default:
+		return
+	}
+	_ = metas.Save()
+}
+
 // data takes what a fetch brought, and asks for what follows from it.
 func (c *createModal) data(msg createDataMsg) tea.Cmd {
+	if msg.projects != nil {
+		c.projects = msg.projects
+		if c.project == "" && len(c.projects) > 0 {
+			return c.useProject(c.projects[0].Key)
+		}
+		return nil
+	}
+	if msg.project != c.project {
+		return nil
+	}
 	if msg.err != nil {
-		c.err, c.loading = msg.err, ""
+		if c.fields == nil { // nothing saved to fall back on
+			c.err, c.loading = msg.err, ""
+		}
 		return nil
 	}
 	switch {
-	case msg.projects != nil:
-		c.projects = msg.projects
-		if c.project == "" && len(c.projects) > 0 {
-			c.project = c.projects[0].Key
-			return c.fetchTypes(c.project)
-		}
-	case msg.types != nil && msg.project == c.project:
-		c.types, c.statuses, c.err = msg.types, msg.statuses, nil
-		c.typeID = c.pickType()
-		if c.typeID == "" {
+	case msg.statuses != nil:
+		c.statuses = msg.statuses
+	case msg.types != nil:
+		c.types = msg.types
+		id := c.pickType()
+		if id == "" {
 			c.loading = ""
 			c.err = fmt.Errorf("you can't create issues in %s", c.project)
 			return nil
 		}
-		return c.fetchFields(c.project, c.typeID)
-	case msg.fields != nil && msg.project == c.project && msg.typeID == c.typeID:
-		c.loading, c.err = "", nil
-		c.fields = map[string]jira.CreateField{}
-		for _, f := range msg.fields {
-			c.fields[f.ID] = f
+		if id != c.typeID {
+			return c.useType(id)
 		}
-		c.dropMissing()
+	case msg.fields != nil && msg.typeID == c.typeID:
+		c.err = nil
+		c.setFields(msg.fields)
 	}
 	return nil
 }
@@ -468,8 +545,7 @@ func (c *createModal) pickProject() modal {
 		if key == "" || key == c.project {
 			return nil
 		}
-		c.project, c.types, c.fields, c.typeID = key, nil, nil, ""
-		return c.fetchTypes(key)
+		return c.useProject(key)
 	}
 	return p
 }
@@ -483,8 +559,7 @@ func (c *createModal) pickTypeMenu() modal {
 		if ch[0].id == c.typeID {
 			return nil
 		}
-		c.typeID, c.fields = ch[0].id, nil
-		return c.fetchFields(c.project, c.typeID)
+		return c.useType(ch[0].id)
 	})
 	p.back = c
 	return p

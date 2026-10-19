@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/khanhtd36/latui/internal/jira"
 )
@@ -170,5 +173,80 @@ func TestNewSubtaskFromIssue(t *testing.T) {
 	}
 	if c.parent != "QA-7" || !c.typeOf(c.typeID).Subtask || c.project != "QA" {
 		t.Errorf("subtask form: parent %q type %+v project %q", c.parent, c.typeOf(c.typeID), c.project)
+	}
+}
+
+// countingJira counts issue loads, to see prefetching at work.
+type countingJira struct {
+	*fakeJira
+	loads map[string]int
+}
+
+func (c *countingJira) Issue(ctx context.Context, key string) (*jira.Issue, error) {
+	c.loads[key]++
+	return c.fakeJira.Issue(ctx, key)
+}
+
+func TestCursorPrefetchesIssue(t *testing.T) {
+	j := &countingJira{fakeJira: issuesJira(), loads: map[string]int{}}
+	m := New(j, sampleFeed(), time.Minute)
+	m = run(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m = run(t, m, m.start()())
+	m = run(t, m, key("j")) // the first issue under In Progress
+	key0 := m.hovered()
+	if key0 == "" || j.loads[key0] != 1 {
+		t.Fatalf("hovering %q should prefetch it once: %v", key0, j.loads)
+	}
+	d := m.knownIssues[key0]
+	if d.issue == nil || !d.tLoaded {
+		t.Fatal("prefetch should load the issue and its transitions")
+	}
+	// Opening it shows the prefetched issue at once (and refreshes it).
+	next, _ := m.Update(openIssueMsg{key: key0})
+	m = next.(Model)
+	if m.issue != d || m.issue.issue == nil {
+		t.Fatal("open should reuse the prefetched issue")
+	}
+	// t opens the menu from the prefetched transitions, no request.
+	_, cmd := m.Update(keyMsg("t"))
+	if cmd == nil {
+		t.Fatal("t should open the transition menu")
+	}
+	if msg := cmd(); msg != nil {
+		if sm, ok := msg.(showModalMsg); !ok {
+			t.Errorf("t should show the menu straight away, got %T", msg)
+		} else if _, ok := sm.modal.(*menuModal); !ok {
+			t.Errorf("menu %T", sm.modal)
+		}
+	}
+}
+
+// failingMeta errors on every create-metadata call.
+type failingMeta struct{ *fakeJira }
+
+func (failingMeta) CreateTypes(context.Context, string) ([]jira.IssueType, error) {
+	return nil, context.DeadlineExceeded
+}
+
+func (failingMeta) CreateFields(context.Context, string, string) ([]jira.CreateField, error) {
+	return nil, context.DeadlineExceeded
+}
+
+func TestCreateFormFromSavedMetadata(t *testing.T) {
+	// A first run fills the saved metadata.
+	m := started(t, issuesJira(), sampleFeed())
+	m = run(t, m, key("n"))
+	_ = run(t, m, key("esc"))
+	// The next run's metadata calls fail: the form still opens complete.
+	m2 := New(failingMeta{issuesJira()}, sampleFeed(), time.Minute)
+	m2 = run(t, m2, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m2 = run(t, m2, m2.start()())
+	m2 = run(t, m2, key("n"))
+	c, ok := m2.modal.(*createModal)
+	if !ok {
+		t.Fatalf("form not open: %T", m2.modal)
+	}
+	if c.err != nil || c.loading != "" || c.fields == nil || !c.has(chipComponents) {
+		t.Fatalf("form should come from saved metadata: err %v loading %q fields %v", c.err, c.loading, c.fields != nil)
 	}
 }

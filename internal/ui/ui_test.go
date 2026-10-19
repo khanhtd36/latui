@@ -186,6 +186,9 @@ func key(k string) tea.Msg { return keyMsg(k) }
 
 func init() {
 	tickAfter = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
+	prefetchAfter = func(_ time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+		return func() tea.Msg { return fn(time.Now()) }
+	}
 	prefs.SetFile(filepath.Join(os.TempDir(), fmt.Sprintf("latui-test-%d.json", os.Getpid())))
 	cache.SetFile(filepath.Join(os.TempDir(), fmt.Sprintf("latui-test-cache-%d.json", os.Getpid())))
 }
