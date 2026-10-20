@@ -283,6 +283,29 @@ func TestEnterOpensIssueDetail(t *testing.T) {
 	}
 }
 
+func TestIssueDetailLayout(t *testing.T) {
+	m := started(t, &fakeJira{issue: sampleIssue()}, sampleFeed())
+	m = run(t, m, openIssueMsg{key: "DEMO-42"})
+	d := m.issue
+	if d.focus != paneContent {
+		t.Fatalf("the Content should start focused, got pane %d", d.focus)
+	}
+	s := screen(m)
+	if strings.Index(s, "Exports run out of memory.") > strings.Index(s, "Comments") {
+		t.Errorf("the description should come before the activity tabs:\n%s", s)
+	}
+	m = run(t, m, key("tab"))
+	if d.focus != paneFields {
+		t.Errorf("tab should focus the Fields sidebar, got pane %d", d.focus)
+	}
+	m = run(t, m, key("tab"))
+	m = run(t, m, key("3"))
+	if d.tab != tabLinks || d.focus != paneContent {
+		t.Errorf("3 should show Links in the Content: tab %d, pane %d", d.tab, d.focus)
+	}
+	_ = m
+}
+
 func TestIssueEdits(t *testing.T) {
 	j := &fakeJira{issue: sampleIssue()}
 	m := started(t, j, sampleFeed())

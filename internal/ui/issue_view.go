@@ -45,8 +45,9 @@ func (c *markdownCache) render(md string, width int) []string {
 	return strings.Split(s, "\n")
 }
 
-// view draws Issue detail: the header, then fields beside the
-// description (stacked on narrow screens), then the activity tabs.
+// view draws Issue detail: the header, then the Content (description and
+// activity in one scroll) beside the Fields sidebar, which drops below the
+// Content on narrow screens.
 func (d *issueModel) view(width, height int) []string {
 	if d.issue == nil {
 		if d.err != nil {
@@ -58,21 +59,12 @@ func (d *issueModel) view(width, height int) []string {
 	bodyH := max(6, height-len(header))
 	var body []string
 	if width >= 110 {
-		topH := max(6, bodyH*2/5)
 		fieldsW := min(52, width/3)
-		top := framePanes(topH,
-			d.pane(paneFields, "Fields", d.fieldLines(fieldsW-2), fieldsW, topH),
-			d.pane(paneDescription, "Description", d.descriptionLines(width-fieldsW-2), width-fieldsW, topH),
-		)
-		bottom := framePanes(bodyH-topH, d.pane(paneActivity, "", d.activityLines(width-2), width, bodyH-topH))
-		body = append(top, bottom...)
+		body = framePanes(bodyH, d.contentPane(width-fieldsW, bodyH), d.fieldsPane(fieldsW, bodyH))
 	} else {
 		fieldsH := max(4, bodyH/3)
-		descH := max(4, bodyH/4)
-		body = append(body, framePanes(fieldsH, d.pane(paneFields, "Fields", d.fieldLines(width-2), width, fieldsH))...)
-		body = append(body, framePanes(descH, d.pane(paneDescription, "Description", d.descriptionLines(width-2), width, descH))...)
-		actH := bodyH - fieldsH - descH
-		body = append(body, framePanes(actH, d.pane(paneActivity, "", d.activityLines(width-2), width, actH))...)
+		body = framePanes(bodyH-fieldsH, d.contentPane(width, bodyH-fieldsH))
+		body = append(body, framePanes(fieldsH, d.fieldsPane(width, fieldsH))...)
 	}
 	return padLines(append(header, body...), height)
 }
@@ -103,41 +95,57 @@ func (d *issueModel) headerLines(width int) []string {
 	return []string{truncate(head, width), truncate(line2, width)}
 }
 
-// pane frames one of the panes, scrolled, and focused when it has the keys.
-func (d *issueModel) pane(which int, title string, lines []string, width, height int) pane {
+// contentPane frames the description followed by the activity as one
+// scroll. It also settles what the keys asked of the scroll: a jump to the
+// activity, or a cursor row to bring into view.
+func (d *issueModel) contentPane(width, height int) pane {
 	inner := paneInnerHeight(height)
-	if which == paneActivity {
-		labels := make([]string, tabCount)
-		for i, name := range tabNames {
-			labels[i] = fmt.Sprintf("%d %s%s", i+1, name, d.tabCount(i))
-		}
-		bar := tabBar(labels, d.tab, width-2)
-		lines = append([]string{bar, ""}, lines...)
-		if d.tab == tabLinks || d.tab == tabAttachments {
-			// Keep the cursor's row in view.
-			at := d.cursor[d.tab] + 2
-			if at < d.scroll[which]+2 {
-				d.scroll[which] = max(0, at-2)
-			}
-			if at >= d.scroll[which]+inner {
-				d.scroll[which] = at - inner + 1
-			}
-		}
+	w := width - 2
+	lines := append([]string{styleHeader.Render("Description")}, d.descriptionLines(w)...)
+	lines = append(lines, "")
+	d.actStart = len(lines)
+	labels := make([]string, tabCount)
+	for i, name := range tabNames {
+		labels[i] = fmt.Sprintf("%d %s%s", i+1, name, d.tabCount(i))
 	}
+	lines = append(lines, tabBar(labels, d.tab, w), "")
+	lines = append(lines, d.activityLines(w)...)
+
 	maxScroll := max(0, len(lines)-inner)
-	d.scroll[which] = min(d.scroll[which], maxScroll)
-	shown := lines
-	if which == paneActivity && d.scroll[which] > 0 {
-		// The tab bar stays put.
-		shown = append([]string{lines[0], lines[1]}, lines[min(len(lines), 2+d.scroll[which]):]...)
-	} else if d.scroll[which] > 0 {
-		shown = lines[d.scroll[which]:]
+	scroll := d.scroll[paneContent]
+	if d.jump {
+		scroll, d.jump = d.actStart, false
 	}
-	pos := ""
-	if maxScroll > 0 {
-		pos = fmt.Sprintf("%d%%", 100*d.scroll[which]/maxScroll)
+	if d.reveal {
+		at := d.actStart + 2 + d.cursor[d.tab]
+		if at < scroll {
+			scroll = at
+		}
+		if at >= scroll+inner {
+			scroll = at - inner + 1
+		}
+		d.reveal = false
 	}
-	return pane{title: title, width: width, lines: shown, focused: d.focus == which, pos: pos}
+	scroll = min(scroll, maxScroll)
+	d.scroll[paneContent], d.rows = scroll, inner
+	d.cursorMode = (d.tab == tabLinks || d.tab == tabAttachments) && scroll >= min(d.actStart, maxScroll)
+
+	return pane{width: width, lines: lines[scroll:], focused: d.focus == paneContent, pos: scrollPos(scroll, maxScroll)}
+}
+
+// fieldsPane frames the Fields sidebar, scrolled when it overflows.
+func (d *issueModel) fieldsPane(width, height int) pane {
+	lines := d.fieldLines(width - 2)
+	maxScroll := max(0, len(lines)-paneInnerHeight(height))
+	d.scroll[paneFields] = min(d.scroll[paneFields], maxScroll)
+	return pane{title: "Fields", width: width, lines: lines[d.scroll[paneFields]:], focused: d.focus == paneFields, pos: scrollPos(d.scroll[paneFields], maxScroll)}
+}
+
+func scrollPos(scroll, maxScroll int) string {
+	if maxScroll == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d%%", 100*scroll/maxScroll)
 }
 
 func (d *issueModel) tabCount(tab int) string {
@@ -328,7 +336,7 @@ func (d *issueModel) linkLines(width int) []string {
 	lines := make([]string, 0, len(rows))
 	for i, r := range rows {
 		prefix := "  "
-		if i == d.cursor[tabLinks] && d.focus == paneActivity {
+		if i == d.cursor[tabLinks] && d.focus == paneContent {
 			prefix = styleCursor.Render("▌ ")
 		}
 		line := prefix + styleDim.Render(fit(r.relation, relW)) + "  " + styleCyan.Render(r.key) + "  " +
@@ -346,7 +354,7 @@ func (d *issueModel) attachmentLines(width int) []string {
 	lines := make([]string, 0, len(as))
 	for i, a := range as {
 		prefix := "  "
-		if i == d.cursor[tabAttachments] && d.focus == paneActivity {
+		if i == d.cursor[tabAttachments] && d.focus == paneContent {
 			prefix = styleCursor.Render("▌ ")
 		}
 		line := prefix + a.Filename + styleDim.Render("  "+size(a.Size)+" · "+a.Author.DisplayName+" · "+relTime(jira.Time(a.Created)))

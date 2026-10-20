@@ -136,8 +136,8 @@ another, the last project and type, and which Sections you closed.
 
 | Issue detail | |
 |---|---|
-| `tab` | next pane: fields, description, activity |
-| `1`-`4` / `[` `]` | Comments, History, Links, Attachments |
+| `tab` | next pane: content (description and activity), fields |
+| `1`-`4` / `[` `]` | Comments, History, Links, Attachments (scrolls the content to them) |
 | `t` | transition (asks for a Resolution when the workflow needs one; other required fields open the browser) |
 | `c` | comment (markdown; `ctrl+e` opens `$EDITOR`, `ctrl+s` posts) |
 | `e` | edit the summary |

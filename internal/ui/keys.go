@@ -64,8 +64,8 @@ var (
 		{keys: "r", desc: "refresh", press: "r", hint: "refresh"},
 	}
 	issueKeys = []binding{
-		{keys: "tab / shift+tab", desc: "next / previous pane: fields, description, activity", press: "tab", hint: "pane"},
-		{keys: "1-4 / [ ]", desc: "Comments, History, Links, Attachments tab", press: "]", hint: "tabs"},
+		{keys: "tab / shift+tab", desc: "next / previous pane: content, fields", press: "tab", hint: "pane"},
+		{keys: "1-4 / [ ]", desc: "Comments, History, Links, Attachments tab (scrolls to it)", press: "]", hint: "tabs"},
 		{keys: "t", desc: "transition: move to another status", press: "t", hint: "status"},
 		{keys: "c", desc: "add a comment (markdown; ctrl+e opens $EDITOR)", press: "c", hint: "comment"},
 		{keys: "e", desc: "edit the summary", press: "e", hint: "summary"},

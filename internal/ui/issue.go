@@ -12,11 +12,11 @@ import (
 	"github.com/khanhtd36/latui/internal/jira"
 )
 
-// Issue detail panes, in tab order.
+// Issue detail panes, in tab order: the Content (description and activity
+// in one scroll) and the Fields sidebar.
 const (
-	paneFields = iota
-	paneDescription
-	paneActivity
+	paneContent = iota
+	paneFields
 	paneCount
 )
 
@@ -58,11 +58,20 @@ type issueModel struct {
 	scroll [paneCount]int // first line shown, per pane
 	cursor [tabCount]int  // Links and Attachments rows
 
+	// Set by keys, settled by the next draw, which knows the layout.
+	jump   bool // scroll the Content to the activity tabs
+	reveal bool // scroll the Content to the cursor row
+
+	// Set by the last draw, for keys.
+	actStart   int  // Content line of the activity tabs
+	rows       int  // lines the Content shows
+	cursorMode bool // j/k move the cursor: the activity is at the top and its tab has rows
+
 	md *markdownCache
 }
 
 func newIssue(api jiraAPI, site auth.Credential, me jira.User, key string) *issueModel {
-	return &issueModel{api: api, site: site, me: me, key: key, focus: paneActivity, md: newMarkdownCache()}
+	return &issueModel{api: api, site: site, me: me, key: key, focus: paneContent, md: newMarkdownCache()}
 }
 
 type (
@@ -158,7 +167,7 @@ func (d *issueModel) afterWrite(msg writtenMsg) tea.Cmd {
 	cmds := []tea.Cmd{d.fetch(partIssue), d.fetch(partHistory), d.fetch(partTransitions)}
 	if msg.comment {
 		cmds = append(cmds, d.fetch(partComments))
-		d.tab, d.scroll[paneActivity] = tabComments, 0
+		d.tab, d.focus, d.jump = tabComments, paneContent, true
 	}
 	return tea.Batch(cmds...)
 }
@@ -189,18 +198,18 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 		d.focus = (d.focus + paneCount - 1) % paneCount
 		return nil
 	case "1", "2", "3", "4":
-		d.tab, d.focus = int(k[0]-'1'), paneActivity
+		d.tab, d.focus, d.jump = int(k[0]-'1'), paneContent, true
 		return nil
 	case "]":
-		d.tab, d.focus = (d.tab+1)%tabCount, paneActivity
+		d.nextTab(1)
 		return nil
 	case "[":
-		d.tab, d.focus = (d.tab+tabCount-1)%tabCount, paneActivity
+		d.nextTab(tabCount - 1)
 		return nil
 	case "r":
 		return d.load()
 	case "o":
-		if d.focus == paneActivity {
+		if d.cursorMode && d.focus == paneContent {
 			if u := d.selectedURL(); u != "" {
 				return openURL(u, "opened in the browser")
 			}
@@ -226,7 +235,7 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 		name := jira.BranchName(d.key, summary)
 		return copyText(name, "copied "+name)
 	case "enter":
-		if d.focus == paneActivity && d.tab == tabLinks {
+		if d.cursorMode && d.focus == paneContent && d.tab == tabLinks {
 			if rows := d.linkRows(); d.cursor[tabLinks] < len(rows) {
 				return openIssueCmd(rows[d.cursor[tabLinks]].key)
 			}
@@ -271,8 +280,17 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 	return d.scrollKey(k, height)
 }
 
-// scrollKey moves in the focused pane: a cursor on Links and
-// Attachments, else the scroll.
+// nextTab steps the activity tab; the scroll jumps to the tabs only when
+// they are out of view.
+func (d *issueModel) nextTab(by int) {
+	d.tab, d.focus = (d.tab+by)%tabCount, paneContent
+	if d.actStart < d.scroll[paneContent] || d.actStart >= d.scroll[paneContent]+d.rows {
+		d.jump = true
+	}
+}
+
+// scrollKey moves in the focused pane: a cursor on Links and Attachments
+// once their tabs are at the top of the Content, else the scroll.
 func (d *issueModel) scrollKey(k string, height int) tea.Cmd {
 	var step int
 	switch k {
@@ -291,13 +309,16 @@ func (d *issueModel) scrollKey(k string, height int) tea.Cmd {
 	default:
 		return nil
 	}
-	if d.focus == paneActivity && (d.tab == tabLinks || d.tab == tabAttachments) {
+	if d.focus == paneContent && d.cursorMode && (k == "j" || k == "k" || k == "down" || k == "up") {
 		n := len(d.linkRows())
 		if d.tab == tabAttachments && d.issue != nil {
 			n = len(d.issue.Fields.Attachments)
 		}
-		d.cursor[d.tab] = max(0, min(d.cursor[d.tab]+step, n-1))
-		return nil
+		// At either end of the rows the keys scroll on.
+		if next := d.cursor[d.tab] + step; next >= 0 && next < n {
+			d.cursor[d.tab], d.reveal = next, true
+			return nil
+		}
 	}
 	d.scroll[d.focus] = max(0, d.scroll[d.focus]+step)
 	return nil
