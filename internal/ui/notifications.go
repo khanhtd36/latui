@@ -282,11 +282,14 @@ func (p *notesPage) key(msg tea.KeyMsg, api feedAPI, height int) tea.Cmd {
 		}
 	case "M":
 		cat := categories[p.tab]
-		return showModal(newConfirm("Mark all "+categoryTitle(cat)+" notifications as read?", func() tea.Msg {
+		// Easily undone, so Yes starts focused.
+		c := newConfirm("Mark all "+categoryTitle(cat)+" notifications as read?", func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 			defer cancel()
 			return markedMsg{all: true, err: api.MarkAllRead(ctx, cat)}
-		}))
+		})
+		c.yes = true
+		return showModal(c)
 	case "enter", "o":
 		g := v.selected()
 		if g == nil {

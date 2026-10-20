@@ -94,7 +94,7 @@ func (m *menuModal) view(int) string {
 
 // confirmModal asks yes/no with two buttons; enter presses the focused
 // one. No starts focused, so a habitual enter can't abandon or delete;
-// focusYes is for what is easily undone. No returns to back (nil closes).
+// setting yes is for what is easily undone. No returns to back (nil closes).
 type confirmModal struct {
 	prompt string
 	onYes  tea.Cmd

@@ -239,6 +239,17 @@ func TestUnreadFilterAndMarking(t *testing.T) {
 	_ = m
 }
 
+func TestMarkAllReadEnterConfirms(t *testing.T) {
+	f := sampleFeed()
+	m := started(t, &fakeJira{issue: sampleIssue()}, f)
+	m = run(t, m, key("M"))
+	m = run(t, m, key("enter"))
+	if f.allRead != notify.Direct {
+		t.Errorf("enter on the default button did not mark all read: %q", f.allRead)
+	}
+	_ = m
+}
+
 func TestTabSwitchesToWatching(t *testing.T) {
 	m := started(t, &fakeJira{issue: sampleIssue()}, sampleFeed())
 	m = run(t, m, key("tab"))

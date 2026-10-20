@@ -54,6 +54,18 @@ _Avoid_: Ticket, work item, task (except as an issue type)
 The screen showing one issue's description, fields, comments and history.
 _Avoid_: Issue view, ticket page
 
+**Content**:
+The main column of Issue detail: the Description followed by the Activity, read as one scroll. It has the focus when an issue opens.
+_Avoid_: Main pane, body
+
+**Activity**:
+The tabbed part of Issue detail under the Description: Comments, History, Links and Attachments.
+_Avoid_: Feed, timeline
+
+**Fields sidebar**:
+The column beside the Content on Issue detail that lists an issue's fields (status, assignee, labels and so on).
+_Avoid_: Details panel, metadata
+
 **Summary**:
 An issue's one-line title.
 _Avoid_: Title, name, subject
