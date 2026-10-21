@@ -163,7 +163,13 @@ func (m Model) titleLine() string {
 	case !at.IsZero():
 		s += styleDim.Render("  updated " + at.Format("15:04:05"))
 	}
-	return truncate(s+m.updateNote(), m.width)
+	// A Click on the word about updates is U: the dialog, or the restart.
+	if note := m.updateNote(); note != "" {
+		x := ansi.StringWidth(s)
+		m.hits.add(region{x: x, y: 0, w: min(ansi.StringWidth(note), m.width-x), h: 1, click: func(mm *Model, _, _ int) tea.Cmd { return mm.press("U") }})
+		s += note
+	}
+	return truncate(s, m.width)
 }
 
 func (m Model) statusLine() string {

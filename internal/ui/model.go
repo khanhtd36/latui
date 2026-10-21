@@ -55,6 +55,9 @@ type Model struct {
 	checkingUpdates bool
 	updating        *updateRun
 	installed       string
+	updateRestart   bool         // restart once the update downloading is installed
+	restartState    string       // set when quitting to restart into the update
+	restore         restoreState // where a restarted latui goes back to
 	updateFailed    *updateFailure
 }
 
@@ -121,6 +124,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.site, m.started, m.startErr = msg.site, true, nil
 		m.useCache()
 		cmds := []tea.Cmd{m.fetchMe(), m.notes.reloadAll(m.feed), m.issues.loadStart(m.jira), m.tick()}
+		if key := m.restore.issue; key != "" {
+			m.restore.issue = ""
+			cmds = append(cmds, openIssueCmd(key))
+		}
 		if p := m.prefs.LastProject; p != "" {
 			// Ready the create form for the project used last.
 			cmds = append(cmds, fetchMeta(m.jira, p, m.prefs.LastType))
@@ -267,6 +274,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, updateTick()
 	case updateDoneMsg:
 		return m.onUpdateDone(msg)
+	case restartMsg:
+		return m.onRestart()
 	case tea.MouseMsg:
 		return m.onMouse(msg)
 	case tea.KeyMsg:

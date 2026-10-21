@@ -48,12 +48,43 @@ func main() {
 	ui.SetVersion(version)
 	ui.UseSymbols(chooseSymbols(*symbols, *ascii, os.Getenv("LATUI_SYMBOLS")))
 
-	creds := auth.Default(os.Getenv)
-	model := ui.New(jira.New(creds), notify.New(creds), max(15*time.Second, *interval))
-	if _, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "latui:", err)
-		os.Exit(1)
+	restore := os.Getenv(restoreEnv)
+	_ = os.Unsetenv(restoreEnv)
+	for {
+		state, err := run(max(15*time.Second, *interval), restore)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "latui:", err)
+			os.Exit(1)
+		}
+		if state == "" {
+			return
+		}
+		// The user restarted into the update just installed.
+		err = restart(exe, append(os.Environ(), restoreEnv+"="+state))
+		fmt.Fprintln(os.Stderr, "latui: restart into the update:", err, "(carrying on with this version)")
+		time.Sleep(2 * time.Second)
+		restore = state
 	}
+}
+
+// restoreEnv carries the page, tab and issue to a restarted latui.
+const restoreEnv = "LATUI_RESTORE"
+
+// run shows latui, from where restore says, and returns the state to restart
+// with when the user restarts into an installed update.
+func run(interval time.Duration, restore string) (string, error) {
+	creds := auth.Default(os.Getenv)
+	model := ui.New(jira.New(creds), notify.New(creds), interval).Restore(restore)
+	final, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	if err != nil {
+		return "", err
+	}
+	if m, ok := final.(ui.Model); ok {
+		if state, restart := m.RestartState(); restart {
+			return state, nil
+		}
+	}
+	return "", nil
 }
 
 // selfUpdate is `latui update`: it lists what newer releases change and

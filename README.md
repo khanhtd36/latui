@@ -56,10 +56,13 @@ checksums: [releases](https://github.com/khanhtd36/latui/releases). The
 scripts verify the download against the release's `checksums.txt`.
 
 **Updating:** latui checks for a newer release at most once a day and
-shows `update v0.2.0 (U)` in the title when there is one; `U` lists what
-changed and installs it. `latui update` does the same from a shell. Copies
-installed with winget, Homebrew or `go install` show their own update
-command instead.
+shows `update v0.2.0 (U)` in the title when there is one; `U` (or a click on
+the note) lists what changed and installs it. **Update and restart**, the
+default, then asks "Restart latui now?": Yes starts the new version in the
+same terminal, back on the same page, tab and issue. **Update only**, or No,
+leaves `v0.2.0 installed, U restart` in the title; `U` or a click on it asks
+again. `latui update` does the same from a shell. Copies installed with
+winget, Homebrew or `go install` show their own update command instead.
 
 ## Sign in
 
