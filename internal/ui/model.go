@@ -46,6 +46,7 @@ type Model struct {
 	help        *helpModal
 	modal       modal
 	prefs       *prefs.Prefs // shared by every copy of the Model
+	hits        *hitMap      // what the last draw left for the mouse
 
 	status      string
 	lastProject string // for ctrl+g with a bare number
@@ -66,7 +67,7 @@ const (
 
 func New(j jiraAPI, f feedAPI, interval time.Duration) Model {
 	p := prefs.Load()
-	return Model{jira: j, feed: f, interval: interval, notes: newNotesPage(), issues: newIssuesPage(p), prefs: &p, knownIssues: map[string]*issueModel{}}
+	return Model{jira: j, feed: f, interval: interval, notes: newNotesPage(), issues: newIssuesPage(p), prefs: &p, knownIssues: map[string]*issueModel{}, hits: newHitMap()}
 }
 
 // savePrefs writes what latui remembers; a failure only loses the memory.
@@ -301,6 +302,7 @@ func (m Model) openIssue(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) onKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.hits.clearSel()
 	k := msg.String()
 	if k == "ctrl+c" {
 		return m, tea.Quit

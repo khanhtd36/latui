@@ -152,8 +152,26 @@ in the browser.
 
 ### Mouse
 
-The wheel scrolls; a click selects a notification and a second click opens
-it; a click on the tabs switches Direct and Watching.
+Everything the keyboard can focus can be clicked.
+
+- **Lists** (Notifications, My issues, an issue's Links and Attachments): a
+  click selects a row and a second click on the selected row opens it. A click
+  on a Section header opens or closes it.
+- **Tabs, checkboxes and buttons** act on the first click: the page tabs, the
+  Direct/Watching and Assigned/Reported tabs, the Unread filter, an issue's
+  Comments/History/Links/Attachments tabs, Yes/No, Create another and Create.
+- **Footer hints** press their key: click `c comment` to comment.
+- **Issue detail:** a click on the content or the fields sidebar focuses it,
+  and the `(esc back to …)` hint goes back.
+- **Menus and pickers:** a click on an item picks it. A click outside closes
+  the popup as esc does (a question like Discard? ignores it).
+- **Create form:** a click focuses a field and a click on the focused field
+  opens it.
+- **The wheel** scrolls the pane under the pointer.
+- **Selecting text:** drag inside a pane. The selection stays in that pane,
+  leaving the frame and the other pane out, and is copied on release. Text
+  boxes keep the mouse for typing; hold Shift while dragging to use the
+  terminal's own selection anywhere.
 
 ## Development
 

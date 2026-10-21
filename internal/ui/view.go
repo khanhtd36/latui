@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,12 +19,26 @@ func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
-	if m.help != nil {
-		return m.help.place(m.width, m.height)
+	h := m.hits
+	h.reset()
+	var lines []string
+	switch {
+	case m.help != nil:
+		lines = strings.Split(m.helpOver(), "\n")
+	case m.modal != nil:
+		lines = strings.Split(m.modalOver(), "\n")
+	default:
+		lines = m.pageLines()
 	}
-	if m.modal != nil {
-		return placeModal(m.modal, m.width, m.height)
+	if h != nil {
+		h.screen = lines
 	}
+	return strings.Join(h.highlight(lines), "\n")
+}
+
+// pageLines is the screen under any popup: the title, the page, the status
+// and the footer.
+func (m Model) pageLines() []string {
 	var body []string
 	switch {
 	case m.startErr != nil:
@@ -31,20 +46,79 @@ func (m Model) View() string {
 	case !m.started:
 		body = []string{styleYellow.Render("signing in…")}
 	case m.issue != nil:
-		body = m.issue.view(m.width, m.bodyHeight())
+		body = m.issue.view(m.width, m.bodyHeight(), m.hits)
 	case m.page == pageIssues:
 		body = m.issuesView()
 	default:
 		body = m.notesView()
 	}
-	var b strings.Builder
-	b.WriteString(m.titleLine() + "\n")
+	lines := []string{m.titleLine()}
 	for _, line := range padLines(body, m.bodyHeight()) {
-		b.WriteString(truncate(line, m.width) + "\n")
+		lines = append(lines, truncate(line, m.width))
 	}
-	b.WriteString(m.statusLine() + "\n")
-	b.WriteString(styleDim.Render(truncate(footer(m.helpGroups()), m.width)))
-	return b.String()
+	lines = append(lines, m.statusLine())
+	foot := footerParts(m.helpGroups())
+	lines = append(lines, styleDim.Render(truncate(footerText(foot), m.width)))
+	m.titleRegions()
+	m.footerRegions(foot, len(lines)-1)
+	return lines
+}
+
+// titleRegions makes the page tabs in the title line clickable.
+func (m Model) titleRegions() {
+	if m.issue != nil || m.startErr != nil || !m.started {
+		return
+	}
+	x := len(titlePrefix)
+	for i, w := range tabWidths(m.pageLabels(), m.width-len(titlePrefix)) {
+		m.hits.add(region{x: x, y: 0, w: w, h: 1, click: func(mm *Model, _, _ int) tea.Cmd {
+			return mm.apply(mm.switchPage(i))
+		}})
+		x += w + 1
+	}
+}
+
+// footerRegions makes each footer hint press its key.
+func (m Model) footerRegions(parts []footerPart, y int) {
+	x := 0
+	for _, p := range parts {
+		w := ansi.StringWidth(p.text)
+		if p.press != "" && x < m.width {
+			m.hits.add(region{x: x, y: y, w: min(w, m.width-x), h: 1, click: func(mm *Model, _, _ int) tea.Cmd {
+				return mm.press(p.press)
+			}})
+		}
+		x += w + footerGap
+	}
+}
+
+// helpOver draws the help popup over the screen.
+func (m Model) helpOver() string {
+	out := m.placeOver(m.help.view())
+	m.hits.area(m.modalFrame().inner())
+	return out
+}
+
+// modalOver draws the open modal over the screen. A modal that takes
+// clicks says so, and one without a text box can have its text selected.
+func (m Model) modalOver() string {
+	out := m.placeOver(m.modal.view(m.width))
+	f := m.modalFrame()
+	if c, ok := m.modal.(clicker); ok {
+		w, _ := m.modal.(wheeler)
+		reg := region{x: f.x, y: f.y, w: f.w, h: f.h, click: func(mm *Model, x, y int) tea.Cmd {
+			cmd := mm.clickModal(x-f.x, y-f.y, c)
+			return cmd
+		}}
+		if w != nil {
+			reg.wheel = func(mm *Model, d int) tea.Cmd { w.wheel(d); return nil }
+		}
+		m.hits.add(reg)
+	}
+	if s, ok := m.modal.(selectable); ok && s.selectable() {
+		m.hits.area(f.inner())
+	}
+	return out
 }
 
 func (m Model) pageLabels() []string {
@@ -121,73 +195,42 @@ func (m Model) notesView() []string {
 			pos += "+"
 		}
 	}
+	m.notesRegions(tabs, h, len(v.groups) > 0)
 	return append([]string{tabs}, framePanes(h, pane{title: title, width: m.width, lines: list, focused: true, pos: pos})...)
 }
 
-// --- Mouse ---
-
-func (m Model) onMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.modal != nil || m.help != nil || !m.started {
-		return m, nil
+// notesRegions makes the Notifications page clickable: the tabs, the
+// Unread filter and the groups. The list starts on screen row 3, under the
+// title, the tabs and the pane's top edge.
+func (m Model) notesRegions(tabs string, h int, hasGroups bool) {
+	p := m.notes
+	x := 0
+	for i, w := range tabWidths(p.tabLabels(), m.width-30) {
+		m.hits.add(region{x: x, y: 1, w: w, h: 1, click: func(mm *Model, _, _ int) tea.Cmd { return mm.notes.switchTab(mm.feed, i) }})
+		x += w + 1
 	}
-	if isClick(msg) && msg.Y == 0 && m.issue == nil {
-		if p, ok := tabAt(m.pageLabels(), msg.X-len(titlePrefix), m.width-len(titlePrefix)); ok {
-			return m.switchPage(p)
+	box := "[ ] only unread (u)"
+	m.hits.add(region{x: ansi.StringWidth(tabs) - ansi.StringWidth(box), y: 1, w: ansi.StringWidth(box), h: 1, click: func(mm *Model, _, _ int) tea.Cmd { return mm.press("u") }})
+	inner := paneInnerHeight(h)
+	m.hits.area(rect{1, 3, m.width - 2, inner})
+	if !hasGroups {
+		return
+	}
+	v := p.view()
+	_, starts, ends := v.listLines(m.width - 2)
+	for i := range starts {
+		first, last := max(starts[i], v.offset), min(ends[i], v.offset+inner)
+		if first >= last {
+			continue
 		}
-		return m, nil
-	}
-	if m.issue == nil && m.page == pageIssues {
-		if d := wheelDelta(msg); d != 0 {
-			m.issues.list().move(d, m.issues.coll())
-		}
-		return m, nil
-	}
-	if d := wheelDelta(msg); d != 0 {
-		if m.issue != nil {
-			m.issue.scrollKey(pick2(d > 0, "j", "k"), m.bodyHeight())
-			return m, nil
-		}
-		v := m.notes.view()
-		v.move(sign(d))
-		return m, m.notes.loadMoreIfNear(m.feed)
-	}
-	if !isClick(msg) || m.issue != nil {
-		return m, nil
-	}
-	// The list starts below the title, the tabs and the pane's top edge.
-	if msg.Y == 1 {
-		if tab, ok := tabAt(m.notes.tabLabels(), msg.X, m.width-30); ok {
-			return m, m.notes.switchTab(m.feed, tab)
-		}
-		return m, nil
-	}
-	v := m.notes.view()
-	i, ok := v.groupAt(m.width-2, msg.Y-3)
-	if !ok {
-		return m, nil
-	}
-	if i == v.cursor {
-		return m.Update(keyMsg("enter"))
-	}
-	v.cursor = i
-	return m, m.notes.loadMoreIfNear(m.feed)
-}
-
-func isClick(msg tea.MouseMsg) bool {
-	return msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft
-}
-
-func wheelDelta(msg tea.MouseMsg) int {
-	if msg.Action != tea.MouseActionPress {
-		return 0
-	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		return -1
-	case tea.MouseButtonWheelDown:
-		return 1
-	default:
-		return 0
+		m.hits.add(region{x: 1, y: 3 + first - v.offset, w: m.width - 2, h: last - first, click: func(mm *Model, _, _ int) tea.Cmd {
+			v := mm.notes.view()
+			if i == v.cursor {
+				return mm.press("enter")
+			}
+			v.cursor = i
+			return mm.notes.loadMoreIfNear(mm.feed)
+		}})
 	}
 }
 
@@ -213,5 +256,65 @@ func (m Model) issuesView() []string {
 		pos = position(l.cursor+1, n)
 	}
 	list := l.render(m.width-2, paneInnerHeight(h), p.coll())
+	m.issuesRegions(head, paneInnerHeight(h))
 	return append([]string{head}, framePanes(h, pane{title: title, width: m.width, lines: list, focused: true, pos: pos})...)
+}
+
+// issuesRegions makes My issues clickable: the tabs or the way back from a
+// filter, the filters hint, and the lines of the list. The list starts on
+// screen row 3, under the title, the tabs and the pane's top edge.
+func (m Model) issuesRegions(head string, inner int) {
+	p := m.issues
+	if p.filter != nil {
+		hint := "(esc back)"
+		x := ansi.StringWidth(head) - len(hint)
+		m.hits.add(region{x: x, y: 1, w: len(hint), h: 1, click: func(mm *Model, _, _ int) tea.Cmd { return mm.press("esc") }})
+	} else {
+		x := 0
+		for i, w := range tabWidths(p.tabLabels(), m.width-30) {
+			m.hits.add(region{x: x, y: 1, w: w, h: 1, click: func(mm *Model, _, _ int) tea.Cmd { return mm.issues.setTab(i, mm.jira) }})
+			x += w + 1
+		}
+		hint := "f favourite filters"
+		m.hits.add(region{x: ansi.StringWidth(head) - len(hint), y: 1, w: len(hint), h: 1, click: func(mm *Model, _, _ int) tea.Cmd { return mm.press("f") }})
+	}
+	m.hits.area(rect{1, 3, m.width - 2, inner})
+	l := p.list()
+	lines := l.lines(p.coll())
+	for i := l.offset; i < min(len(lines), l.offset+inner); i++ {
+		m.hits.add(region{x: 1, y: 3 + i - l.offset, w: m.width - 2, h: 1, click: func(mm *Model, _, _ int) tea.Cmd {
+			return mm.clickIssueLine(i)
+		}})
+	}
+}
+
+// clickIssueLine acts on a Click on line i of the My issues list: a Section
+// header opens or closes at once, and a row selects, then opens.
+func (m *Model) clickIssueLine(i int) tea.Cmd {
+	p := m.issues
+	l := p.list()
+	lines := l.lines(p.coll())
+	if i >= len(lines) {
+		return nil
+	}
+	was := l.cursor
+	l.cursor = i
+	if lines[i].row == nil {
+		p.coll()[lines[i].status] = !p.coll()[lines[i].status]
+		m.savePrefs()
+		return nil
+	}
+	if was == i {
+		return openIssueCmd(lines[i].row.Key)
+	}
+	return nil
+}
+
+// setTab shows Assigned or Reported, loading it when it has not been.
+func (p *issuesPage) setTab(tab int, api jiraAPI) tea.Cmd {
+	p.tab = tab
+	if l := p.list(); !l.loaded && !l.loading {
+		return p.load(api)
+	}
+	return nil
 }

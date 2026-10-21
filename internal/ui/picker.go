@@ -271,3 +271,23 @@ func (i *inputModal) view(width int) string {
 	i.input.Width = min(70, max(30, width-16))
 	return styleModal.Render(styleSection.Render(i.title) + "\n\n" + i.input.View() + "\n\n" + styleDim.Render(i.hint))
 }
+
+// --- Mouse ---
+
+func (p *pickerModal) wheel(d int) {
+	p.cursor += d
+	p.clamp()
+}
+
+// click picks or toggles the option clicked, as enter would; the options
+// start below the title, the box and a blank line each.
+func (p *pickerModal) click(_, y int) (modal, tea.Cmd) {
+	row := y - modalPadY - 4
+	start := max(0, p.cursor-pickerRows+1)
+	i := start + row
+	if row < 0 || row >= pickerRows || i >= len(p.visible()) {
+		return p, nil
+	}
+	p.cursor = i
+	return p.update(keyMsg("enter"))
+}

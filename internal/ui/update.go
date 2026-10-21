@@ -178,6 +178,7 @@ type updateModal struct {
 	how      update.Method
 	failed   *updateFailure // the last try, when it failed
 	later    bool           // Later is focused
+	barY     int            // the content line of the buttons, -1 when there are none
 }
 
 func (u *updateModal) bar() buttonBar {
@@ -221,6 +222,7 @@ func (u *updateModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 func (u *updateModal) view(width int) string {
 	w := min(100, max(40, width-10))
 	latest := u.releases[0].Version()
+	u.barY = -1
 	lines := []string{styleSection.Render(fmt.Sprintf("latui v%s → v%s", buildVersion, latest)), ""}
 	if f := u.failed; f != nil {
 		lines = append(lines, styleRed.Render(truncate(fmt.Sprintf("last try (v%s) failed: %v", f.version, f.err), w)), "")
@@ -240,6 +242,7 @@ func (u *updateModal) view(width int) string {
 	if cmd := u.how.Command(); cmd != "" {
 		lines = append(lines, "This copy is managed elsewhere; update it with:", "  "+styleCyan.Render(cmd), "", styleDim.Render("esc close"))
 	} else {
+		u.barY = len(lines)
 		lines = append(lines, u.bar().render(0))
 	}
 	return styleModal.Render(strings.Join(lines, "\n"))
@@ -251,4 +254,17 @@ func versionLabel() string {
 		return "dev"
 	}
 	return "v" + strings.TrimPrefix(buildVersion, "v")
+}
+
+func (u *updateModal) selectable() bool { return true }
+
+// click presses the button clicked.
+func (u *updateModal) click(x, y int) (modal, tea.Cmd) {
+	if u.barY < 0 || y != modalPadY+u.barY {
+		return u, nil
+	}
+	if i, ok := u.bar().at(x - modalPadX); ok {
+		return u.press(i)
+	}
+	return u, nil
 }

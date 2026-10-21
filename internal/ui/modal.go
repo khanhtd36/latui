@@ -253,3 +253,55 @@ func (e *editorModal) view(int) string {
 	return styleModal.Render(styleSection.Render(e.title) + "\n\n" + e.ta.View() + "\n\n" +
 		styleDim.Render("ctrl+s post · ctrl+e open in $EDITOR · esc cancel"))
 }
+
+// --- Mouse ---
+
+// A modal is drawn in a border and one column of padding, so its content
+// starts at cell 2, 1; the clicks it gets count from its top left corner.
+const (
+	modalPadX = 2
+	modalPadY = 1
+)
+
+func (m *menuModal) selectable() bool { return true }
+
+func (m *menuModal) wheel(d int) { m.cursor = max(0, min(m.cursor+d, len(m.items)-1)) }
+
+// click runs the item clicked, as enter would; the items start below the
+// title and a blank line.
+func (m *menuModal) click(_, y int) (modal, tea.Cmd) {
+	i := y - modalPadY - 2
+	if i < 0 || i >= len(m.items) {
+		return m, nil
+	}
+	m.cursor = i
+	return m.update(keyMsg("enter"))
+}
+
+func (c *confirmModal) selectable() bool { return true }
+
+// stays: an outside Click does not answer a question.
+func (c *confirmModal) stays() bool { return true }
+
+// click presses the button clicked; the buttons are on the line after the
+// prompt and a blank one.
+func (c *confirmModal) click(x, y int) (modal, tea.Cmd) {
+	b := c.bar()
+	w := b.width()
+	lines := strings.Split(c.prompt, "\n")
+	for _, l := range lines {
+		w = max(w, lipgloss.Width(l))
+	}
+	if y != modalPadY+len(lines)+1 {
+		return c, nil
+	}
+	return c.pressAt(b, x-modalPadX-b.pad(w))
+}
+
+// pressAt presses the button of the bar that covers column x of it.
+func (c *confirmModal) pressAt(b buttonBar, x int) (modal, tea.Cmd) {
+	if i, ok := b.at(x); ok {
+		return c.press(i)
+	}
+	return c, nil
+}

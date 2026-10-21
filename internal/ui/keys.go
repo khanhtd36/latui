@@ -83,7 +83,7 @@ var (
 		{keys: "?", desc: "this help", hint: "help"},
 		{keys: "q", desc: "quit (anywhere outside a text box)", hint: "quit"},
 		{keys: "ctrl+c", desc: "quit, even while typing"},
-		{keys: "mouse", desc: "click selects, click again opens, wheel scrolls"},
+		{keys: "mouse", desc: "click selects, click again opens; drag selects text and copies it; wheel scrolls"},
 	}
 )
 
@@ -103,18 +103,38 @@ func withCommon(groups ...bindingGroup) []bindingGroup {
 	return append(groups, bindingGroup{"Move", moveKeys}, bindingGroup{"Global", globalKeys})
 }
 
-// footer renders the hints of the given groups as the bottom help line.
-func footer(groups []bindingGroup) string {
-	var parts []string
+// footerPart is one hint of the footer; press is the key a Click on it
+// presses, empty when the hint only describes.
+type footerPart struct {
+	text, press string
+}
+
+// footerGap is the columns between footer hints.
+const footerGap = 2
+
+// footerParts lists the hints of the given groups for the bottom help line.
+func footerParts(groups []bindingGroup) []footerPart {
+	var parts []footerPart
 	for _, g := range groups {
 		for _, b := range g.bindings {
 			if b.hint != "" {
-				parts = append(parts, strings.ReplaceAll(b.keys, " / ", "/")+" "+b.hint)
+				parts = append(parts, footerPart{text: strings.ReplaceAll(b.keys, " / ", "/") + " " + b.hint, press: b.press})
 			}
 		}
 	}
-	return strings.Join(parts, "  ")
+	return parts
 }
+
+func footerText(parts []footerPart) string {
+	texts := make([]string, len(parts))
+	for i, p := range parts {
+		texts[i] = p.text
+	}
+	return strings.Join(texts, strings.Repeat(" ", footerGap))
+}
+
+// footer renders the hints of the given groups as the bottom help line.
+func footer(groups []bindingGroup) string { return footerText(footerParts(groups)) }
 
 // keyMsg turns a binding's press string back into the key it stands for.
 func keyMsg(press string) tea.KeyMsg {

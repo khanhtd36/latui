@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"time"
 
@@ -48,28 +49,29 @@ func (c *markdownCache) render(md string, width int) []string {
 // view draws Issue detail: the header, then the Content (description and
 // activity in one scroll) beside the Fields sidebar, which drops below the
 // Content on narrow screens.
-func (d *issueModel) view(width, height int) []string {
+func (d *issueModel) view(width, height int, h *hitMap) []string {
 	if d.issue == nil {
 		if d.err != nil {
 			return padLines(append([]string{styleTitle.Render(d.key)}, errorLines(d.err, width)...), height)
 		}
 		return padLines([]string{styleTitle.Render(d.key), styleYellow.Render("loading…")}, height)
 	}
-	header := d.headerLines(width)
+	header := d.headerLines(width, h)
 	bodyH := max(6, height-len(header))
+	top := 1 + len(header) // the screen row the panes start on, under the title
 	var body []string
 	if width >= 110 {
 		fieldsW := min(52, width/3)
-		body = framePanes(bodyH, d.contentPane(width-fieldsW, bodyH), d.fieldsPane(fieldsW, bodyH))
+		body = framePanes(bodyH, d.contentPane(0, top, width-fieldsW, bodyH, h), d.fieldsPane(width-fieldsW, top, fieldsW, bodyH, h))
 	} else {
 		fieldsH := max(4, bodyH/3)
-		body = framePanes(bodyH-fieldsH, d.contentPane(width, bodyH-fieldsH))
-		body = append(body, framePanes(fieldsH, d.fieldsPane(width, fieldsH))...)
+		body = framePanes(bodyH-fieldsH, d.contentPane(0, top, width, bodyH-fieldsH, h))
+		body = append(body, framePanes(fieldsH, d.fieldsPane(0, top+bodyH-fieldsH, width, fieldsH, h))...)
 	}
 	return padLines(append(header, body...), height)
 }
 
-func (d *issueModel) headerLines(width int) []string {
+func (d *issueModel) headerLines(width int, h *hitMap) []string {
 	f := d.issue.Fields
 	head := styleCyan.Bold(true).Render(d.key) + "  " + styleTitle.Render(f.Summary)
 	meta := []string{
@@ -90,15 +92,19 @@ func (d *issueModel) headerLines(width int) []string {
 		line2 += styleRed.Render("  refresh failed: " + d.refreshErr.Error())
 	}
 	if len(d.back) > 0 {
-		line2 += styleDim.Render("  (esc back to " + d.back[len(d.back)-1] + ")")
+		hint := "(esc back to " + d.back[len(d.back)-1] + ")"
+		x := ansi.StringWidth(line2) + 2
+		line2 += styleDim.Render("  " + hint)
+		h.add(region{x: x, y: 2, w: min(ansi.StringWidth(hint), width-x), h: 1, click: func(m *Model, _, _ int) tea.Cmd { return m.press("esc") }})
 	}
 	return []string{truncate(head, width), truncate(line2, width)}
 }
 
 // contentPane frames the description followed by the activity as one
-// scroll. It also settles what the keys asked of the scroll: a jump to the
-// activity, or a cursor row to bring into view.
-func (d *issueModel) contentPane(width, height int) pane {
+// scroll, with its top left corner at screen cell x0, y0. It also settles
+// what the keys asked of the scroll: a jump to the activity, or a cursor
+// row to bring into view.
+func (d *issueModel) contentPane(x0, y0, width, height int, h *hitMap) pane {
 	inner := paneInnerHeight(height)
 	w := width - 2
 	lines := append([]string{styleHeader.Render("Description")}, d.descriptionLines(w)...)
@@ -130,14 +136,90 @@ func (d *issueModel) contentPane(width, height int) pane {
 	d.scroll[paneContent], d.rows = scroll, inner
 	d.cursorMode = (d.tab == tabLinks || d.tab == tabAttachments) && scroll >= min(d.actStart, maxScroll)
 
+	d.contentRegions(x0, y0, width, height, labels, h)
 	return pane{width: width, lines: lines[scroll:], focused: d.focus == paneContent, pos: scrollPos(scroll, maxScroll)}
 }
 
-// fieldsPane frames the Fields sidebar, scrolled when it overflows.
-func (d *issueModel) fieldsPane(width, height int) pane {
+// wheelLines is how many lines one notch of the wheel scrolls a pane.
+const wheelLines = 3
+
+// contentRegions makes the Content clickable: the pane takes the focus, a
+// tab label switches the tab, and a Links or Attachments row selects, then
+// opens on a second Click.
+func (d *issueModel) contentRegions(x0, y0, width, height int, labels []string, h *hitMap) {
+	inner, scroll := paneInnerHeight(height), d.scroll[paneContent]
+	h.area(rect{x0 + 1, y0 + 1, width - 2, inner})
+	h.add(region{x: x0, y: y0, w: width, h: height,
+		click: func(*Model, int, int) tea.Cmd { d.focus = paneContent; return nil },
+		wheel: func(_ *Model, n int) tea.Cmd {
+			d.scroll[paneContent] = max(0, d.scroll[paneContent]+n*wheelLines)
+			return nil
+		},
+	})
+	row := func(line int) (int, bool) { // the screen row of a content line
+		at := line - scroll
+		return y0 + 1 + at, at >= 0 && at < inner
+	}
+	if y, ok := row(d.actStart); ok {
+		x := x0 + 1
+		for i, w := range tabWidths(labels, width-2) {
+			h.add(region{x: x, y: y, w: w, h: 1, click: func(*Model, int, int) tea.Cmd {
+				d.tab, d.focus, d.jump = i, paneContent, true
+				return nil
+			}})
+			x += w + 1
+		}
+	}
+	n := 0
+	switch d.tab {
+	case tabLinks:
+		n = len(d.linkRows())
+	case tabAttachments:
+		n = len(d.issue.Fields.Attachments)
+	}
+	for i := range n {
+		if y, ok := row(d.actStart + 2 + i); ok {
+			h.add(region{x: x0 + 1, y: y, w: width - 2, h: 1, click: func(*Model, int, int) tea.Cmd {
+				d.focus = paneContent
+				if d.cursor[d.tab] != i {
+					d.cursor[d.tab] = i
+					return nil
+				}
+				return d.openSelected()
+			}})
+		}
+	}
+}
+
+// openSelected opens the Links or Attachments row under the cursor.
+func (d *issueModel) openSelected() tea.Cmd {
+	switch d.tab {
+	case tabLinks:
+		if rows := d.linkRows(); d.cursor[tabLinks] < len(rows) {
+			return openIssueCmd(rows[d.cursor[tabLinks]].key)
+		}
+	case tabAttachments:
+		if u := d.selectedURL(); u != "" {
+			return openURL(u, "opened in the browser")
+		}
+	}
+	return nil
+}
+
+// fieldsPane frames the Fields sidebar, scrolled when it overflows, with
+// its top left corner at screen cell x0, y0.
+func (d *issueModel) fieldsPane(x0, y0, width, height int, h *hitMap) pane {
 	lines := d.fieldLines(width - 2)
 	maxScroll := max(0, len(lines)-paneInnerHeight(height))
 	d.scroll[paneFields] = min(d.scroll[paneFields], maxScroll)
+	h.area(rect{x0 + 1, y0 + 1, width - 2, paneInnerHeight(height)})
+	h.add(region{x: x0, y: y0, w: width, h: height,
+		click: func(*Model, int, int) tea.Cmd { d.focus = paneFields; return nil },
+		wheel: func(_ *Model, n int) tea.Cmd {
+			d.scroll[paneFields] = max(0, d.scroll[paneFields]+n*wheelLines)
+			return nil
+		},
+	})
 	return pane{title: "Fields", width: width, lines: lines[d.scroll[paneFields]:], focused: d.focus == paneFields, pos: scrollPos(d.scroll[paneFields], maxScroll)}
 }
 

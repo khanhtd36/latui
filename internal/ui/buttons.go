@@ -64,3 +64,15 @@ func (b *buttonBar) move(k string) bool {
 	}
 	return true
 }
+
+// at is the button covering column x of the bar, counted from its first.
+func (b buttonBar) at(x int) (int, bool) {
+	start := 0
+	for i, w := range b.widths() {
+		if x >= start && x < start+w {
+			return i, true
+		}
+		start += w + buttonGap
+	}
+	return 0, false
+}

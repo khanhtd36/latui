@@ -72,6 +72,7 @@ type createModal struct {
 	summary textinput.Model
 	desc    textarea.Model
 	focus   int
+	hits    []createHit // what the last draw left to click
 
 	assignee    pickOption // id "" is Automatic
 	labels      []string
@@ -874,9 +875,17 @@ func (c *createModal) view(width int) string {
 	if t := c.typeOf(c.typeID); t.ID != "" {
 		typeName = t.Name
 	}
+	c.hits = c.hits[:0]
+	projectChip := c.chip("‹ "+cmpOr(c.project, "project")+" ›", c.focus == focusProject, true)
+	typeChip := c.chip("‹ "+typeName+" ›", c.focus == focusType, true)
+	c.hit(0, 0, ansi.StringWidth(projectChip), focusProject)
+	c.hit(ansi.StringWidth(projectChip)+1, 0, ansi.StringWidth(typeChip), focusType)
+	c.hit(0, 2, w, focusSummary)
+	for i := range c.desc.Height() {
+		c.hit(0, 4+i, w, focusDescription)
+	}
 	lines := []string{
-		c.chip("‹ "+cmpOr(c.project, "project")+" ›", c.focus == focusProject, true) + " " +
-			c.chip("‹ "+typeName+" ›", c.focus == focusType, true) +
+		projectChip + " " + typeChip +
 			styleDim.Render(pick2(c.fixedParent != "", "  subtask of "+c.fixedParent, "")),
 		"",
 		styleSection.Render("Summary  ") + c.summary.View(),
@@ -885,8 +894,10 @@ func (c *createModal) view(width int) string {
 		"",
 	}
 	var chips []string
+	var ids []int
 	for i := range chipCount {
 		if c.has(i) {
+			ids = append(ids, i)
 			set := c.chipText(i) != chipNames[i] && c.chipText(i) != "Due date"
 			chips = append(chips, c.chip(c.chipText(i), c.focus == focusChips+i, set))
 		}
@@ -897,7 +908,11 @@ func (c *createModal) view(width int) string {
 	case c.loading != "":
 		lines = append(lines, styleYellow.Render("loading "+c.loading+"…"))
 	default:
-		lines = append(lines, wrapChips(chips, w)...)
+		rows, at := layoutChips(chips, w)
+		for _, p := range at {
+			c.hit(p.x, rowsOf(lines)+p.row, p.w, focusChips+ids[p.chip])
+		}
+		lines = append(lines, rows...)
 		if u := c.unsupported(); len(u) > 0 {
 			lines = append(lines, styleYellow.Render(truncate(c.project+" needs "+strings.Join(u, ", ")+": create this type in the browser", w)))
 		}
@@ -917,16 +932,24 @@ func (c *createModal) view(width int) string {
 	}
 	button := c.chip(pick2(c.creating, "Creating…", "Create"), c.focus == focusCreate, true)
 	right := box + "  " + button
+	rightX := max(ansi.StringWidth(created), w-ansi.StringWidth(right))
+	c.hit(rightX, rowsOf(lines), ansi.StringWidth(box), focusAnother)
+	c.hit(rightX+ansi.StringWidth(box)+2, rowsOf(lines), ansi.StringWidth(button), focusCreate)
 	lines = append(lines, padRight(created, max(0, w-ansi.StringWidth(right)))+right, "",
 		styleDim.Render("tab move · enter pick · ctrl+s create · ctrl+a create another · ctrl+e $EDITOR · ctrl+y copy created · esc close"))
 	return styleModal.Render(styleSection.Render("New issue") + "\n\n" + strings.Join(lines, "\n"))
 }
 
-// wrapChips lays chips in rows of at most w cells.
-func wrapChips(chips []string, w int) []string {
+// chipAt is where layoutChips put chip number chip: its row and first
+// column, and its width.
+type chipAt struct{ chip, row, x, w int }
+
+// layoutChips lays chips in rows of at most w cells.
+func layoutChips(chips []string, w int) ([]string, []chipAt) {
 	var rows []string
+	var at []chipAt
 	row := ""
-	for _, ch := range chips {
+	for i, ch := range chips {
 		if row != "" && ansi.StringWidth(row)+1+ansi.StringWidth(ch) > w {
 			rows = append(rows, row)
 			row = ""
@@ -934,10 +957,48 @@ func wrapChips(chips []string, w int) []string {
 		if row != "" {
 			row += " "
 		}
+		at = append(at, chipAt{chip: i, row: len(rows), x: ansi.StringWidth(row), w: ansi.StringWidth(ch)})
 		row += ch
 	}
 	if row != "" {
 		rows = append(rows, row)
 	}
-	return rows
+	return rows, at
 }
+
+// createHit is something in the form a Click reaches, at a content cell.
+type createHit struct{ x, y, w, focus int }
+
+func (c *createModal) hit(x, y, w, focus int) { c.hits = append(c.hits, createHit{x, y, w, focus}) }
+
+func (c *createModal) selectable() bool { return false }
+
+// click moves to the field clicked; a Click on the field that already has
+// the focus opens it, as enter would. Create another and Create act at
+// once, like any button.
+func (c *createModal) click(x, y int) (modal, tea.Cmd) {
+	x, y = x-modalPadX, y-modalPadY-2 // the form starts under the title and a blank line
+	for _, h := range c.hits {
+		if y != h.y || x < h.x || x >= h.x+h.w || !c.stopAt(h.focus) {
+			continue
+		}
+		switch {
+		case h.focus == focusAnother:
+			c.setFocus(h.focus)
+			c.toggleAnother()
+			return c, nil
+		case h.focus == focusCreate:
+			c.setFocus(h.focus)
+			return c.submit()
+		case h.focus == focusSummary || h.focus == focusDescription || c.focus != h.focus:
+			c.setFocus(h.focus)
+			return c, nil
+		}
+		return c.update(keyMsg("enter"))
+	}
+	return c, nil
+}
+
+// rowsOf is how many screen rows the lines take: one of them, the text
+// box, is several.
+func rowsOf(lines []string) int { return strings.Count(strings.Join(lines, "\n"), "\n") + 1 }

@@ -44,6 +44,24 @@ _Avoid_: Thread, bundle
 The Jira issue or Confluence page a notification is about.
 _Avoid_: Entity, object, link
 
+### Mouse
+
+**Click**:
+A press and release of the left button on the same cell. A press that moves to another cell before release is a Selection, not a Click.
+_Avoid_: Tap, press
+
+**Select-then-open**:
+How a Click acts on a row of a persistent list: the first Click moves the cursor there, a second Click on the selected row opens it. Tabs, buttons, checkboxes and Section headers act on the first Click, and so does a row in a modal.
+_Avoid_: Double-click
+
+**Selection**:
+Text highlighted by dragging inside one pane; it is copied to the clipboard on release and cleared by the next Click, key press or wheel scroll. Text inputs do not offer one.
+_Avoid_: Highlight, mark
+
+**Footer hint**:
+One shortcut named in the footer, such as `c comment`; a Click on it presses its key.
+_Avoid_: Status bar item, button
+
 ### Jira
 
 **Issue**:
