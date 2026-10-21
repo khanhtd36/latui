@@ -16,13 +16,6 @@ import (
 // restartMsg is Yes to restarting into the installed update.
 type restartMsg struct{}
 
-// restoreState is where a restarted latui goes back to; issue is empty when
-// no issue was open.
-type restoreState struct {
-	page, tab int
-	issue     string
-}
-
 // RestartState is what to hand the restarted latui once the user asked to
 // restart into an installed update; ok is false on a plain quit.
 func (m Model) RestartState() (state string, ok bool) {
@@ -60,7 +53,7 @@ func (m Model) Restore(state string) Model {
 			}
 		case "issue":
 			if key, ok := jira.ParseKey(v, ""); ok {
-				m.restore.issue = key
+				m.restoreIssue = key
 			}
 		}
 	}

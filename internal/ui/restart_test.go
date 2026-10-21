@@ -25,11 +25,11 @@ func TestRestartStateRoundTrip(t *testing.T) {
 	}
 
 	fresh := New(&fakeJira{issue: sampleIssue()}, sampleFeed(), 0).Restore("page=0,tab=1,issue=DEMO-42")
-	if fresh.page != pageIssues || fresh.issues.tab != tabReported || fresh.restore.issue != "DEMO-42" {
-		t.Errorf("restored page %d, tab %d, issue %q", fresh.page, fresh.issues.tab, fresh.restore.issue)
+	if fresh.page != pageIssues || fresh.issues.tab != tabReported || fresh.restoreIssue != "DEMO-42" {
+		t.Errorf("restored page %d, tab %d, issue %q", fresh.page, fresh.issues.tab, fresh.restoreIssue)
 	}
-	if bad := New(&fakeJira{}, sampleFeed(), 0).Restore("page=9,tab=-1,issue=nonsense"); bad.page != pageIssues || bad.restore.issue != "" {
-		t.Errorf("bad state was taken: page %d, issue %q", bad.page, bad.restore.issue)
+	if bad := New(&fakeJira{}, sampleFeed(), 0).Restore("page=9,tab=-1,issue=nonsense"); bad.page != pageIssues || bad.restoreIssue != "" {
+		t.Errorf("bad state was taken: page %d, issue %q", bad.page, bad.restoreIssue)
 	}
 }
 
@@ -51,8 +51,7 @@ func TestUpdateAndRestartPromptsAfterInstall(t *testing.T) {
 	if !ok || !c.yes || !strings.Contains(c.prompt, "Restart latui now?") {
 		t.Fatalf("no restart question with Yes focused after the install: %T", m.modal)
 	}
-	next, cmd := m.Update(key("enter"))
-	m = next.(Model)
+	_, cmd := m.Update(key("enter"))
 	if _, ok := cmd().(restartMsg); !ok {
 		t.Error("enter on Yes should restart")
 	}
