@@ -168,15 +168,26 @@ plain.
 name linked to its page, then every member as a mention, since Jira notifies
 the members. Teams need an API token, because acli's sign-in can't read them.
 Create one at
-[id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)
-and set, next to the acli sign-in:
+[id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens),
+then give it to latui either way:
+
+- **In the picker:** press `ctrl+t` (the picker says so while teams are off),
+  paste the token, press enter. `ctrl+o` opens the token page.
+- **From a shell:** `latui teams login` asks for the token with the typing
+  hidden, or reads it from a pipe (`--email` if the token is for another
+  account than acli's). `latui teams logout` forgets it.
+
+latui checks the token before keeping it, and keeps it in the OS secure store
+(Windows Credential Manager, macOS Keychain, Linux Secret Service), never in a
+file. Where there is no secure store, use the environment instead:
 
 ```sh
-export LATUI_TEAMS_EMAIL=you@example.com
 export LATUI_TEAMS_TOKEN=...
+export LATUI_TEAMS_EMAIL=you@example.com   # only if not acli's account
 ```
 
-Without them the picker lists people only and says so once per run.
+The environment wins over the stored token. Without either, the picker lists
+people only, and a token Atlassian turns down is reported there too.
 
 ### Mouse
 

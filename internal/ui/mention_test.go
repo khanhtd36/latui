@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,7 +13,22 @@ import (
 	"github.com/khanhtd36/latui/internal/teams"
 )
 
-type fakeTeams struct{ searched []string }
+type fakeTeams struct {
+	searched []string
+	state    teams.State
+	token    string // the token last saved
+	loginErr error
+}
+
+func (f *fakeTeams) State(context.Context) teams.State { return f.state }
+
+func (f *fakeTeams) Login(_ context.Context, _, token string) error {
+	if f.loginErr != nil {
+		return f.loginErr
+	}
+	f.token, f.state = token, teams.Ready
+	return nil
+}
 
 func (f *fakeTeams) Search(_ context.Context, q string) ([]teams.Team, error) {
 	f.searched = append(f.searched, q)
@@ -34,7 +50,6 @@ func typeText(t *testing.T, m Model, s string) Model {
 // commentBox opens Issue detail and the comment editor on it.
 func commentBox(t *testing.T, j *fakeJira, tm teamsAPI) (Model, *editorModal) {
 	t.Helper()
-	teamsHintShown = false
 	prefs.SetFile(filepath.Join(t.TempDir(), "prefs.json"))
 	m := started(t, j, sampleFeed())
 	if tm != nil {
@@ -110,7 +125,7 @@ func TestEscKeepsTheAt(t *testing.T) {
 
 func TestMentionATeamExpandsToItsMembers(t *testing.T) {
 	j := &fakeJira{issue: sampleIssue()}
-	tm := &fakeTeams{}
+	tm := &fakeTeams{state: teams.Ready}
 	m, ed := commentBox(t, j, tm)
 	m = run(t, m, key("@"))
 	m = typeText(t, m, "MITS")
@@ -133,18 +148,77 @@ func TestMentionATeamExpandsToItsMembers(t *testing.T) {
 	}
 }
 
-func TestPickerWithoutTeamsSaysHowToGetThem(t *testing.T) {
-	m, _ := commentBox(t, &fakeJira{issue: sampleIssue()}, nil)
+func TestPickerSaysHowToSetUpTeams(t *testing.T) {
+	tm := &fakeTeams{state: teams.Off}
+	m, _ := commentBox(t, &fakeJira{issue: sampleIssue()}, tm)
 	m = run(t, m, key("@"))
-	if !strings.Contains(screen(m), "LATUI_TEAMS_TOKEN") {
-		t.Errorf("no hint about teams:\n%s", screen(m))
+	if !strings.Contains(screen(m), "ctrl+t to set up teams") {
+		t.Errorf("no hint about setting up teams:\n%s", screen(m))
+	}
+	if len(tm.searched) != 0 {
+		t.Error("teams were searched with no token")
 	}
 	m = run(t, m, key("esc"))
+
+	rejected := &fakeTeams{state: teams.Rejected}
+	m, _ = commentBox(t, &fakeJira{issue: sampleIssue()}, rejected)
 	m = run(t, m, key("@"))
-	if strings.Contains(screen(m), "LATUI_TEAMS_TOKEN") {
-		t.Error("the hint came again in the same run")
+	if !strings.Contains(screen(m), "turned down") || len(rejected.searched) != 0 {
+		t.Errorf("a rejected token should say so and not be tried:\n%s", screen(m))
 	}
-	_ = m
+}
+
+func TestPastingATeamsToken(t *testing.T) {
+	tm := &fakeTeams{state: teams.Off}
+	m, ed := commentBox(t, &fakeJira{issue: sampleIssue()}, tm)
+	m = run(t, m, key("@"))
+	picker := m.modal
+	m = run(t, m, key("ctrl+t"))
+	if _, ok := m.modal.(*teamsSetupModal); !ok {
+		t.Fatalf("ctrl+t did not open the token box: %T", m.modal)
+	}
+	m = typeText(t, m, "secret-token")
+	if s := screen(m); strings.Contains(s, "secret") || !strings.Contains(s, "••••") {
+		t.Fatalf("the token is shown or not masked:\n%s", s)
+	}
+
+	// A token the gateway turns down stays in the box with the reason.
+	tm.loginErr = errors.New("teams: 401 Unauthorized: the token was turned down")
+	m = run(t, m, key("enter"))
+	if _, ok := m.modal.(*teamsSetupModal); !ok || !strings.Contains(screen(m), "turned down") {
+		t.Fatalf("a bad token should stay in the box with the reason:\n%s", screen(m))
+	}
+	if strings.Contains(screen(m), "secret-token") {
+		t.Error("the token came back in the error")
+	}
+
+	// A good one saves, turns teams on and goes back to the picker.
+	tm.loginErr = nil
+	m = typeText(t, m, "good-token")
+	m = run(t, m, key("enter"))
+	if tm.token != "good-token" || m.modal != picker || tm.state != teams.Ready {
+		t.Fatalf("token %q, modal %T, state %v", tm.token, m.modal, tm.state)
+	}
+	if !strings.Contains(m.status, "teams are on") {
+		t.Errorf("status %q", m.status)
+	}
+	if len(tm.searched) == 0 {
+		t.Error("the picker did not look for teams again")
+	}
+	_ = ed
+}
+
+func TestEscLeavesTheTokenBoxWithoutSaving(t *testing.T) {
+	tm := &fakeTeams{state: teams.Off}
+	m, _ := commentBox(t, &fakeJira{issue: sampleIssue()}, tm)
+	m = run(t, m, key("@"))
+	picker := m.modal
+	m = run(t, m, key("ctrl+t"))
+	m = typeText(t, m, "abc")
+	m = run(t, m, key("esc"))
+	if m.modal != picker || tm.token != "" {
+		t.Errorf("esc: modal %T, saved %q", m.modal, tm.token)
+	}
 }
 
 func TestRecentMentionsComeFirst(t *testing.T) {
@@ -168,7 +242,6 @@ func TestRecentMentionsComeFirst(t *testing.T) {
 }
 
 func TestMentionInTheCreateFormDescription(t *testing.T) {
-	teamsHintShown = true
 	m := started(t, &fakeJira{issue: sampleIssue()}, sampleFeed())
 	m = run(t, m, key("n"))
 	c, ok := m.modal.(*createModal)

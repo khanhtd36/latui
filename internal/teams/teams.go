@@ -1,7 +1,9 @@
 // Package teams searches Atlassian Teams and lists their members through the
 // GraphQL gateway, with an API token: acli's OAuth token does not carry the
-// scope Teams needs (view:team:teams), so the lookup is optional and off until
-// LATUI_TEAMS_EMAIL and LATUI_TEAMS_TOKEN are set.
+// scope Teams needs (view:team:teams). The token comes from the environment
+// (LATUI_TEAMS_TOKEN, and LATUI_TEAMS_EMAIL when it is not the sign-in's own
+// account) or from the OS secure store, where `latui teams login` or the
+// mention picker put it.
 package teams
 
 import (
@@ -29,29 +31,89 @@ type Team struct {
 // Member is one person of a team.
 type Member struct{ ID, Name string }
 
+// State is whether teams can be looked up.
+type State int
+
+const (
+	// Off: no token is set or stored.
+	Off State = iota
+	// Ready: there is a token and it has worked, or has not been tried.
+	Ready
+	// Rejected: the gateway turned the token down.
+	Rejected
+)
+
+// ErrNotSetUp is a lookup asked for with no token.
+var ErrNotSetUp = errors.New("teams: no token set up")
+
 // Client talks to the gateway as the token's user.
 type Client struct {
-	Site         auth.Source // the sign-in that says which site and cloud ID
-	Email, Token string
-	HTTP         *http.Client
-	URL          string // replaces the gateway, for tests
+	Site   auth.Source // the sign-in that says which site and cloud ID
+	Getenv func(string) string
+	Store  Store
+	HTTP   *http.Client
+	URL    string // replaces the gateway, for tests
 
-	mu    sync.Mutex
-	orgID string
+	mu       sync.Mutex
+	orgID    string
+	loadedAt string // the site the stored login was read for
+	stored   *Login
+	rejected bool
 }
 
-// FromEnv is the client for LATUI_TEAMS_EMAIL and LATUI_TEAMS_TOKEN, nil when
-// either is missing.
-func FromEnv(site auth.Source, getenv func(string) string) *Client {
-	email, token := getenv("LATUI_TEAMS_EMAIL"), getenv("LATUI_TEAMS_TOKEN")
-	if email == "" || token == "" {
-		return nil
+// New is the Teams lookup for a sign-in, reading the environment first and
+// then the OS secure store.
+func New(site auth.Source, getenv func(string) string, store Store) *Client {
+	if store == nil {
+		store = KeyringStore{}
 	}
-	return &Client{Site: site, Email: email, Token: token, HTTP: http.DefaultClient}
+	return &Client{Site: site, Getenv: getenv, Store: store, HTTP: http.DefaultClient}
 }
 
-// Available says whether teams can be looked up; a nil Client has none.
-func (c *Client) Available() bool { return c != nil }
+// login is the token to use for cred's site: the environment's, else the
+// stored one.
+func (c *Client) login(cred auth.Credential) (Login, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if tok := c.Getenv("LATUI_TEAMS_TOKEN"); tok != "" {
+		return Login{Email: orDefault(c.Getenv("LATUI_TEAMS_EMAIL"), cred.Email), Token: tok}, true
+	}
+	if c.loadedAt != cred.Site {
+		c.loadedAt, c.stored = cred.Site, nil
+		if l, ok, err := c.Store.Load(cred.Site); err == nil && ok {
+			c.stored = &l
+		}
+	}
+	if c.stored == nil {
+		return Login{}, false
+	}
+	return Login{Email: orDefault(c.stored.Email, cred.Email), Token: c.stored.Token}, true
+}
+
+func orDefault(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// State says whether teams can be looked up; it reads the sign-in and the
+// secure store, never the network.
+func (c *Client) State(ctx context.Context) State {
+	cred, err := c.Site.Credential(ctx)
+	if err != nil {
+		return Off
+	}
+	if _, ok := c.login(cred); !ok {
+		return Off
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rejected {
+		return Rejected
+	}
+	return Ready
+}
 
 const (
 	teamARI = "ari:cloud:identity::team/"
@@ -60,7 +122,7 @@ const (
 
 type gqlError struct{ Message string }
 
-func (c *Client) call(ctx context.Context, cred auth.Credential, op, query string, vars map[string]any, out any) error {
+func (c *Client) call(ctx context.Context, cred auth.Credential, lg Login, op, query string, vars map[string]any, out any) error {
 	body, err := json.Marshal(map[string]any{"query": query, "operationName": op, "variables": vars})
 	if err != nil {
 		return err
@@ -73,7 +135,7 @@ func (c *Client) call(ctx context.Context, cred auth.Credential, op, query strin
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(c.Email+":"+c.Token)))
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(lg.Email+":"+lg.Token)))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -83,6 +145,10 @@ func (c *Client) call(ctx context.Context, cred auth.Credential, op, query strin
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		c.setRejected(true)
+		return fmt.Errorf("teams: %s: the token was turned down", resp.Status)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("teams: %s", resp.Status)
@@ -102,24 +168,35 @@ func (c *Client) call(ctx context.Context, cred auth.Credential, op, query strin
 		}
 	}
 	if len(failures) > 0 {
+		if strings.Contains(failures[0], "authoris") || strings.Contains(failures[0], "scope") {
+			c.setRejected(true)
+		}
 		return fmt.Errorf("teams: %s", failures[0])
 	}
+	c.setRejected(false)
 	return json.Unmarshal(env.Data, out)
 }
 
-// org is the organization the site belongs to, asked once.
-func (c *Client) org(ctx context.Context, cred auth.Credential) (string, error) {
+func (c *Client) setRejected(v bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.orgID != "" {
-		return c.orgID, nil
+	c.rejected = v
+	c.mu.Unlock()
+}
+
+// org is the organization the site belongs to, asked once.
+func (c *Client) org(ctx context.Context, cred auth.Credential, lg Login) (string, error) {
+	c.mu.Lock()
+	id := c.orgID
+	c.mu.Unlock()
+	if id != "" {
+		return id, nil
 	}
 	var v struct {
 		Tenants []struct {
 			OrgID string `json:"orgId"`
 		} `json:"tenantContexts"`
 	}
-	err := c.call(ctx, cred, "TeamsOrg", `query TeamsOrg($cloudIds: [ID!]!) { tenantContexts(cloudIds: $cloudIds) { orgId } }`,
+	err := c.call(ctx, cred, lg, "TeamsOrg", `query TeamsOrg($cloudIds: [ID!]!) { tenantContexts(cloudIds: $cloudIds) { orgId } }`,
 		map[string]any{"cloudIds": []string{cred.CloudID}}, &v)
 	if err != nil {
 		return "", err
@@ -127,8 +204,54 @@ func (c *Client) org(ctx context.Context, cred auth.Credential) (string, error) 
 	if len(v.Tenants) == 0 || v.Tenants[0].OrgID == "" {
 		return "", errors.New("teams: no organization for this site")
 	}
+	c.mu.Lock()
 	c.orgID = v.Tenants[0].OrgID
-	return c.orgID, nil
+	c.mu.Unlock()
+	return v.Tenants[0].OrgID, nil
+}
+
+// Login checks a token with the gateway and, if it works, keeps it in the OS
+// secure store: a wrong token is never stored. An empty email is the
+// sign-in's own.
+func (c *Client) Login(ctx context.Context, email, token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return errors.New("teams: no token given")
+	}
+	cred, err := c.Site.Credential(ctx)
+	if err != nil {
+		return err
+	}
+	lg := Login{Email: orDefault(email, cred.Email), Token: token}
+	c.mu.Lock()
+	c.orgID = ""
+	c.mu.Unlock()
+	if _, err := c.org(ctx, cred, lg); err != nil {
+		return err
+	}
+	stored := Login{Email: email, Token: token}
+	if err := c.Store.Save(cred.Site, stored); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.loadedAt, c.stored, c.rejected = cred.Site, &stored, false
+	c.mu.Unlock()
+	return nil
+}
+
+// Logout removes the stored token. One set in the environment stays.
+func (c *Client) Logout(ctx context.Context) error {
+	cred, err := c.Site.Credential(ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.Store.Delete(cred.Site); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.loadedAt, c.stored, c.rejected = cred.Site, nil, false
+	c.mu.Unlock()
+	return nil
 }
 
 const searchQuery = `query TeamsSearch($org: ID!, $site: String!, $q: String) {
@@ -157,16 +280,20 @@ func (c *Client) Search(ctx context.Context, query string) ([]Team, error) {
 	if err != nil {
 		return nil, err
 	}
-	org, err := c.org(ctx, cred)
+	lg, ok := c.login(cred)
+	if !ok {
+		return nil, ErrNotSetUp
+	}
+	org, err := c.org(ctx, cred, lg)
 	if err != nil {
 		return nil, err
 	}
 	var v searchResult
 	vars := map[string]any{"org": orgARI + org, "site": cred.CloudID, "q": query}
-	if err := c.call(ctx, cred, "TeamsSearch", searchQuery, vars, &v); err != nil {
+	if err := c.call(ctx, cred, lg, "TeamsSearch", searchQuery, vars, &v); err != nil {
 		// Some sites want the bare organization ID.
 		vars["org"] = org
-		if err2 := c.call(ctx, cred, "TeamsSearch", searchQuery, vars, &v); err2 != nil {
+		if err2 := c.call(ctx, cred, lg, "TeamsSearch", searchQuery, vars, &v); err2 != nil {
 			return nil, err
 		}
 	}
@@ -187,6 +314,10 @@ func (c *Client) Members(ctx context.Context, teamID string) ([]Member, error) {
 	if err != nil {
 		return nil, err
 	}
+	lg, ok := c.login(cred)
+	if !ok {
+		return nil, ErrNotSetUp
+	}
 	var v struct {
 		Team struct {
 			Team struct {
@@ -201,7 +332,7 @@ func (c *Client) Members(ctx context.Context, teamID string) ([]Member, error) {
 			} `json:"teamV2"`
 		} `json:"team"`
 	}
-	err = c.call(ctx, cred, "TeamMembers", membersQuery, map[string]any{"id": teamARI + teamID, "site": cred.CloudID}, &v)
+	err = c.call(ctx, cred, lg, "TeamMembers", membersQuery, map[string]any{"id": teamARI + teamID, "site": cred.CloudID}, &v)
 	if err != nil {
 		return nil, err
 	}

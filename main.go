@@ -46,6 +46,13 @@ func main() {
 		}
 		return
 	}
+	if flag.Arg(0) == "teams" {
+		if err := teamsCommand(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "latui:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	ui.SetVersion(version)
 	ui.UseSymbols(chooseSymbols(*symbols, *ascii, os.Getenv("LATUI_SYMBOLS")))
 
@@ -76,9 +83,7 @@ const restoreEnv = "LATUI_RESTORE"
 func run(interval time.Duration, restore string) (string, error) {
 	creds := auth.Default(os.Getenv)
 	model := ui.New(jira.New(creds), notify.New(creds), interval).Restore(restore)
-	if t := teams.FromEnv(creds, os.Getenv); t != nil {
-		model = model.WithTeams(t)
-	}
+	model = model.WithTeams(teams.New(creds, os.Getenv, nil))
 	final, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	if err != nil {
 		return "", err

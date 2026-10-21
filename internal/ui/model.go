@@ -279,6 +279,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onRestart()
 	case teamMembersMsg:
 		return m.onTeamMembers(msg)
+	case teamsLoginMsg:
+		if s, ok := m.modal.(*teamsSetupModal); ok {
+			var cmd tea.Cmd
+			m.modal, cmd = s.result(msg)
+			return m, cmd
+		}
+		return m, nil
 	case tea.MouseMsg:
 		return m.onMouse(msg)
 	case tea.KeyMsg:

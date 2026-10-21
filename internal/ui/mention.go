@@ -22,6 +22,8 @@ import (
 
 // teamsAPI is the Teams lookup; *teams.Client in the app, a fake in tests.
 type teamsAPI interface {
+	State(ctx context.Context) teams.State
+	Login(ctx context.Context, email, token string) error
 	Search(ctx context.Context, query string) ([]teams.Team, error)
 	Members(ctx context.Context, teamID string) ([]teams.Member, error)
 }
@@ -30,6 +32,7 @@ type teamsAPI interface {
 // lookup when there is one, and the recent mentions saved in the prefs.
 type mentionDeps struct {
 	teams    teamsAPI
+	email    string // the sign-in's account, for the teams token box
 	recents  func() []prefs.Mention
 	remember func(prefs.Mention)
 }
@@ -100,10 +103,10 @@ func teamOption(t teams.Team) pickOption {
 	return pickOption{id: t.ID, label: t.Name, detail: detail, team: true}
 }
 
-// teamsHintShown is whether this run has said how to get teams.
-var teamsHintShown bool
-
-const teamsHint = "teams need LATUI_TEAMS_EMAIL and LATUI_TEAMS_TOKEN (see README)"
+const (
+	teamsHint         = "ctrl+t to set up teams (LATUI_TEAMS_TOKEN works too)"
+	teamsRejectedHint = "the teams token was turned down: ctrl+t to replace it"
+)
 
 // mentionPicker opens the picker for a mention in box, going back to back.
 func (s mentionSource) picker(box mentionTarget, back modal) *pickerModal {
@@ -145,9 +148,19 @@ func (s mentionSource) picker(box mentionTarget, back modal) *pickerModal {
 	p.back = back
 	p.cancel = func() { box.insert("@", nil) } // Esc keeps the @ as typed
 	p.search = s.search
-	if s.teams == nil && !teamsHintShown {
-		teamsHintShown = true
-		p.note = teamsHint
+	if s.teams != nil {
+		switch s.teams.State(context.Background()) {
+		case teams.Off:
+			p.note = teamsHint
+		case teams.Rejected:
+			p.note = teamsRejectedHint
+		}
+		if p.note != "" {
+			p.keys = map[string]func() (modal, tea.Cmd){"ctrl+t": func() (modal, tea.Cmd) {
+				setup := newTeamsSetup(s.teams.Login, s.email, p, func() tea.Cmd { return p.search(strings.TrimSpace(p.input.Value())) })
+				return setup, nil
+			}}
+		}
 	}
 	return p
 }
@@ -169,7 +182,7 @@ func (s mentionSource) search(q string) tea.Cmd {
 			defer wg.Done()
 			users, uerr = s.api.MentionableUsers(ctx, s.issue, s.project, q)
 		}()
-		if s.teams != nil {
+		if s.teams != nil && s.teams.State(ctx) == teams.Ready {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -240,6 +253,7 @@ func (m Model) mentionDeps() mentionDeps {
 			_ = p.Save()
 		},
 	}
+	d.email = m.site.Email
 	if m.teams != nil {
 		d.teams = m.teams
 	}
