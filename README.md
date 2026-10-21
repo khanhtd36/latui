@@ -147,11 +147,32 @@ another, the last project and type, and which Sections you closed.
 | `l` / `C` | labels / components |
 | `A` | assignee (Me and Unassigned first, type to search) |
 | `b` | copy a git branch name (`KEY-summary-words`) |
-| `enter` | on Links: open the linked issue (`esc` comes back) |
+| `enter` | on Links: open the linked issue (`esc` comes back); on Attachments: view the file |
+| `s` | on Attachments: save the file |
+| `f` | open the issue's saved folder |
 
 The description is shown, not edited: rich content markdown can't hold
 (panels, media, tables with merged cells) would be lost. Press `o` to edit it
 in the browser.
+
+### Attachments
+
+On the Attachments tab (`4`) `enter`, or a second click, **views** the
+selected file: it is saved first, then text (UTF-8 or UTF-16, up to 2 MB)
+opens in a scrolling viewer and anything else opens in the system's app. `s`
+only saves it, `f` opens the folder, `y` copies the name, link or saved path,
+and `o` opens it in the browser as before.
+
+Files go to `Downloads/latui/<issue key>/` (the real Downloads folder on
+Windows, `~/Downloads` elsewhere). Saving a file that is already there with
+the same size reuses it; a different file of the same name becomes
+`name (1).ext`. The name is cleaned so it can't land outside the folder.
+
+Programs and scripts (`.exe .bat .cmd .ps1 .msi .lnk .js .vbs .jar .sh` and
+similar) are saved but **never opened** by latui: it says "saved, not opened"
+and you can open one from the folder yourself. A script's text still shows in
+the viewer, which runs nothing. The save shows `saving name 3.1/8.4 MB` in the
+status line, one at a time.
 
 ### Mentions
 

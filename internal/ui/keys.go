@@ -75,7 +75,9 @@ var (
 		{keys: "b", desc: "copy a git branch name for the issue", press: "b"},
 		{keys: "y", desc: "copy menu: key, link, summary, branch", press: "y", hint: "copy"},
 		{keys: "o", desc: "open in the browser (on Links or Attachments: the selected one)", press: "o", hint: "browser"},
-		{keys: "enter", desc: "on Links: open the linked issue", press: "enter"},
+		{keys: "enter", desc: "on Links: open the linked issue; on Attachments: view the file (text in a viewer, else the system app)", press: "enter"},
+		{keys: "s", desc: "on Attachments: save the file to Downloads/latui/<issue>", press: "s", hint: "save"},
+		{keys: "f", desc: "open the issue's saved folder, with the selected file picked out", press: "f", hint: "folder"},
 		{keys: "r", desc: "refresh", press: "r"},
 		{keys: "esc", desc: "back to the notifications", press: "esc", hint: "back"},
 	}

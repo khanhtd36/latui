@@ -218,6 +218,9 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 		}
 		return openURL(d.browseURL(), "opened "+d.key)
 	case "y":
+		if d.cursorMode && d.focus == paneContent && d.tab == tabAttachments {
+			return d.attachCopyMenu()
+		}
 		summary := ""
 		if d.issue != nil {
 			summary = d.issue.Fields.Summary
@@ -237,10 +240,8 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 		name := jira.BranchName(d.key, summary)
 		return copyText(name, "copied "+name)
 	case "enter":
-		if d.cursorMode && d.focus == paneContent && d.tab == tabLinks {
-			if rows := d.linkRows(); d.cursor[tabLinks] < len(rows) {
-				return openIssueCmd(rows[d.cursor[tabLinks]].key)
-			}
+		if d.cursorMode && d.focus == paneContent {
+			return d.openSelected()
 		}
 		return nil
 	}
@@ -276,6 +277,13 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 				return d.api.SetSummary(ctx, d.key, s)
 			})
 		}))
+	case "s":
+		if d.cursorMode && d.focus == paneContent && d.tab == tabAttachments {
+			return d.attachCmd(purposeSave)
+		}
+		return statusCmd("s saves the selected attachment: open the Attachments tab (4)")
+	case "f":
+		return d.openFolder()
 	case "l":
 		return d.editLabels()
 	case "C":

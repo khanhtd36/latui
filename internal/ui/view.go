@@ -104,6 +104,9 @@ func (m Model) helpOver() string {
 // modalOver draws the open modal over the screen. A modal that takes
 // clicks says so, and one without a text box can have its text selected.
 func (m Model) modalOver() string {
+	if s, ok := m.modal.(sizer); ok {
+		s.size(m.width, m.height)
+	}
 	out := m.placeOver(m.modal.view(m.width))
 	f := m.modalFrame()
 	if c, ok := m.modal.(clicker); ok {

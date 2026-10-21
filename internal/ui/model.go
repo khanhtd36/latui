@@ -48,6 +48,7 @@ type Model struct {
 	prefs       *prefs.Prefs // shared by every copy of the Model
 	hits        *hitMap      // what the last draw left for the mouse
 	teams       teamsAPI     // looks up teams to mention; nil without a token
+	saving      *saveRun     // an attachment being saved, nil otherwise
 
 	status      string
 	lastProject string // for ctrl+g with a bare number
@@ -279,6 +280,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onRestart()
 	case teamMembersMsg:
 		return m.onTeamMembers(msg)
+	case attachStartMsg:
+		return m.startAttach(msg)
+	case attachTickMsg:
+		return m.onAttachTick()
+	case attachDoneMsg:
+		return m.onAttachDone(msg)
 	case teamsLoginMsg:
 		if s, ok := m.modal.(*teamsSetupModal); ok {
 			var cmd tea.Cmd

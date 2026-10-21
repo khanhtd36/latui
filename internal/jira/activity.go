@@ -3,6 +3,8 @@ package jira
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
@@ -113,4 +115,35 @@ func (c *Client) History(ctx context.Context, key string) ([]HistoryEntry, error
 	}
 	sort.SliceStable(out, func(i, j int) bool { return Time(out[i].Created).After(Time(out[j].Created)) })
 	return out, nil
+}
+
+// Download opens an attachment's content: its body, which the caller closes,
+// and its size. Atlassian answers with a redirect to its media service, which
+// the client follows; there is no overall time limit, only ctx, so a big file
+// on a slow line can finish.
+func (c *Client) Download(ctx context.Context, a Attachment) (io.ReadCloser, int64, error) {
+	cred, err := c.Creds.Credential(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	base := c.Base
+	if base == "" {
+		base = cred.JiraBase()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/rest/api/3/attachment/content/"+esc(a.ID), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", cred.Header())
+	hc := &http.Client{Transport: c.HTTP.Transport}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		resp.Body.Close()
+		return nil, 0, apiError(resp.StatusCode, b)
+	}
+	return resp.Body, resp.ContentLength, nil
 }

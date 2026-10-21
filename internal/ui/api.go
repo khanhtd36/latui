@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"io"
 
 	"github.com/khanhtd36/latui/internal/adf"
 	"github.com/khanhtd36/latui/internal/auth"
@@ -20,6 +21,7 @@ type jiraAPI interface {
 	Transitions(ctx context.Context, key string) ([]jira.Transition, error)
 	Transition(ctx context.Context, key, id, resolution string) error
 	AddComment(ctx context.Context, key, markdown string, subs []adf.Sub) error
+	Download(ctx context.Context, a jira.Attachment) (io.ReadCloser, int64, error)
 	SetSummary(ctx context.Context, key, summary string) error
 	SetLabels(ctx context.Context, key string, labels []string) error
 	SetComponents(ctx context.Context, key string, ids []string) error

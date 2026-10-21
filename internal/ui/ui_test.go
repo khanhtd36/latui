@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,8 @@ type fakeJira struct {
 	comment        string
 	commentSubs    []adf.Sub
 	mentionQueries []string
+	files          map[string]string // attachment ID → content
+	downloadErr    error
 	transition     string
 	rows           map[string][]jira.Row // by JQL prefix
 	created        []jira.NewIssue
@@ -92,6 +95,14 @@ func (f *fakeJira) MentionableUsers(_ context.Context, _, _, q string) ([]jira.U
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeJira) Download(_ context.Context, a jira.Attachment) (io.ReadCloser, int64, error) {
+	if f.downloadErr != nil {
+		return nil, 0, f.downloadErr
+	}
+	c := f.files[a.ID]
+	return io.NopCloser(strings.NewReader(c)), int64(len(c)), nil
 }
 
 func (f *fakeJira) LabelSuggestions(context.Context, string) ([]string, error) {

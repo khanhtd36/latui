@@ -80,6 +80,14 @@ _Avoid_: Main pane, body
 The tabbed part of Issue detail under the Description: Comments, History, Links and Attachments.
 _Avoid_: Feed, timeline
 
+**Attachment**:
+A file on an issue, listed on the Attachments tab of Activity. Viewing one saves it first; text shows in a viewer, anything else opens in the system app.
+_Avoid_: File, upload
+
+**Saved folder**:
+Where latui puts an issue's attachments: the Downloads folder's `latui` folder, then one folder named by the issue key. An attachment that could run code is saved there but never opened.
+_Avoid_: Cache, downloads
+
 **Fields sidebar**:
 The column beside the Content on Issue detail that lists an issue's fields (status, assignee, labels and so on).
 _Avoid_: Details panel, metadata

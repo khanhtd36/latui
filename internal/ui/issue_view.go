@@ -200,9 +200,7 @@ func (d *issueModel) openSelected() tea.Cmd {
 			return openIssueCmd(rows[d.cursor[tabLinks]].key)
 		}
 	case tabAttachments:
-		if u := d.selectedURL(); u != "" {
-			return openURL(u, "opened in the browser")
-		}
+		return d.attachCmd(purposeView)
 	}
 	return nil
 }
@@ -444,7 +442,7 @@ func (d *issueModel) attachmentLines(width int) []string {
 		line := prefix + a.Filename + styleDim.Render("  "+size(a.Size)+" · "+a.Author.DisplayName+" · "+relTime(jira.Time(a.Created)))
 		lines = append(lines, truncate(line, width))
 	}
-	return append(lines, "", styleDim.Render("o open in the browser"))
+	return append(lines, "", styleDim.Render("enter view or open · s save · f folder · o open in the browser"))
 }
 
 func size(n int64) string {

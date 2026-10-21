@@ -65,6 +65,7 @@ type Attachment struct {
 	Created  string `json:"created"`
 	Author   User   `json:"author"`
 	Content  string `json:"content"`
+	MimeType string `json:"mimeType"`
 }
 
 // Fields are the standard fields latui shows by name.
