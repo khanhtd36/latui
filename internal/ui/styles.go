@@ -168,7 +168,3 @@ func wrap(s string, w int) []string {
 	}
 	return out
 }
-
-func placeModal(m modal, width, height int) string {
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, m.view(width))
-}

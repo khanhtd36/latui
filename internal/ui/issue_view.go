@@ -2,10 +2,10 @@ package ui
 
 import (
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/x/ansi"
 
@@ -62,10 +62,10 @@ func (d *issueModel) view(width, height int, h *hitMap) []string {
 	var body []string
 	if width >= 110 {
 		fieldsW := min(52, width/3)
-		body = framePanes(bodyH, d.contentPane(0, top, width-fieldsW, bodyH, h), d.fieldsPane(width-fieldsW, top, fieldsW, bodyH, h))
+		body = framePanes(bodyH, d.contentPane(top, width-fieldsW, bodyH, h), d.fieldsPane(width-fieldsW, top, fieldsW, bodyH, h))
 	} else {
 		fieldsH := max(4, bodyH/3)
-		body = framePanes(bodyH-fieldsH, d.contentPane(0, top, width, bodyH-fieldsH, h))
+		body = framePanes(bodyH-fieldsH, d.contentPane(top, width, bodyH-fieldsH, h))
 		body = append(body, framePanes(fieldsH, d.fieldsPane(0, top+bodyH-fieldsH, width, fieldsH, h))...)
 	}
 	return padLines(append(header, body...), height)
@@ -101,10 +101,10 @@ func (d *issueModel) headerLines(width int, h *hitMap) []string {
 }
 
 // contentPane frames the description followed by the activity as one
-// scroll, with its top left corner at screen cell x0, y0. It also settles
+// scroll, from the left edge of the screen and row y0. It also settles
 // what the keys asked of the scroll: a jump to the activity, or a cursor
 // row to bring into view.
-func (d *issueModel) contentPane(x0, y0, width, height int, h *hitMap) pane {
+func (d *issueModel) contentPane(y0, width, height int, h *hitMap) pane {
 	inner := paneInnerHeight(height)
 	w := width - 2
 	lines := append([]string{styleHeader.Render("Description")}, d.descriptionLines(w)...)
@@ -136,7 +136,7 @@ func (d *issueModel) contentPane(x0, y0, width, height int, h *hitMap) pane {
 	d.scroll[paneContent], d.rows = scroll, inner
 	d.cursorMode = (d.tab == tabLinks || d.tab == tabAttachments) && scroll >= min(d.actStart, maxScroll)
 
-	d.contentRegions(x0, y0, width, height, labels, h)
+	d.contentRegions(y0, width, height, labels, h)
 	return pane{width: width, lines: lines[scroll:], focused: d.focus == paneContent, pos: scrollPos(scroll, maxScroll)}
 }
 
@@ -146,10 +146,11 @@ const wheelLines = 3
 // contentRegions makes the Content clickable: the pane takes the focus, a
 // tab label switches the tab, and a Links or Attachments row selects, then
 // opens on a second Click.
-func (d *issueModel) contentRegions(x0, y0, width, height int, labels []string, h *hitMap) {
+func (d *issueModel) contentRegions(y0, width, height int, labels []string, h *hitMap) {
 	inner, scroll := paneInnerHeight(height), d.scroll[paneContent]
-	h.area(rect{x0 + 1, y0 + 1, width - 2, inner})
-	h.add(region{x: x0, y: y0, w: width, h: height,
+	h.area(rect{1, y0 + 1, width - 2, inner})
+	h.add(region{
+		x: 0, y: y0, w: width, h: height,
 		click: func(*Model, int, int) tea.Cmd { d.focus = paneContent; return nil },
 		wheel: func(_ *Model, n int) tea.Cmd {
 			d.scroll[paneContent] = max(0, d.scroll[paneContent]+n*wheelLines)
@@ -161,7 +162,7 @@ func (d *issueModel) contentRegions(x0, y0, width, height int, labels []string, 
 		return y0 + 1 + at, at >= 0 && at < inner
 	}
 	if y, ok := row(d.actStart); ok {
-		x := x0 + 1
+		x := 1
 		for i, w := range tabWidths(labels, width-2) {
 			h.add(region{x: x, y: y, w: w, h: 1, click: func(*Model, int, int) tea.Cmd {
 				d.tab, d.focus, d.jump = i, paneContent, true
@@ -179,7 +180,7 @@ func (d *issueModel) contentRegions(x0, y0, width, height int, labels []string, 
 	}
 	for i := range n {
 		if y, ok := row(d.actStart + 2 + i); ok {
-			h.add(region{x: x0 + 1, y: y, w: width - 2, h: 1, click: func(*Model, int, int) tea.Cmd {
+			h.add(region{x: 1, y: y, w: width - 2, h: 1, click: func(*Model, int, int) tea.Cmd {
 				d.focus = paneContent
 				if d.cursor[d.tab] != i {
 					d.cursor[d.tab] = i
@@ -213,7 +214,8 @@ func (d *issueModel) fieldsPane(x0, y0, width, height int, h *hitMap) pane {
 	maxScroll := max(0, len(lines)-paneInnerHeight(height))
 	d.scroll[paneFields] = min(d.scroll[paneFields], maxScroll)
 	h.area(rect{x0 + 1, y0 + 1, width - 2, paneInnerHeight(height)})
-	h.add(region{x: x0, y: y0, w: width, h: height,
+	h.add(region{
+		x: x0, y: y0, w: width, h: height,
 		click: func(*Model, int, int) tea.Cmd { d.focus = paneFields; return nil },
 		wheel: func(_ *Model, n int) tea.Cmd {
 			d.scroll[paneFields] = max(0, d.scroll[paneFields]+n*wheelLines)

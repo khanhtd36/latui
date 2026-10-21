@@ -947,7 +947,7 @@ type chipAt struct{ chip, row, x, w int }
 // layoutChips lays chips in rows of at most w cells.
 func layoutChips(chips []string, w int) ([]string, []chipAt) {
 	var rows []string
-	var at []chipAt
+	at := make([]chipAt, 0, len(chips))
 	row := ""
 	for i, ch := range chips {
 		if row != "" && ansi.StringWidth(row)+1+ansi.StringWidth(ch) > w {

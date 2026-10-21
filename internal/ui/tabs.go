@@ -58,15 +58,3 @@ func tabBar(labels []string, active, width int) string {
 	}
 	return strings.Join(cells, " ")
 }
-
-// tabAt is the tab covering column x of a bar tabBar drew in width columns.
-func tabAt(labels []string, x, width int) (int, bool) {
-	start := 0
-	for i, w := range tabWidths(labels, width) {
-		if x >= start && x < start+w {
-			return i, true
-		}
-		start += w + 1
-	}
-	return 0, false
-}

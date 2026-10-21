@@ -515,18 +515,6 @@ func (v *feedView) render(width, height int, unreadOnly bool, more bool) []strin
 	return padLines(lines[v.offset:], height)
 }
 
-// groupAt is the group drawn at screen line y of the list.
-func (v *feedView) groupAt(width, y int) (int, bool) {
-	_, starts, ends := v.listLines(width)
-	line := v.offset + y
-	for i := range starts {
-		if line >= starts[i] && line < ends[i] {
-			return i, true
-		}
-	}
-	return 0, false
-}
-
 // errorLines shows an API error, with the schema hint for GraphQL errors.
 func errorLines(err error, width int) []string {
 	lines := []string{styleRed.Render(truncate("error: "+err.Error(), width))}

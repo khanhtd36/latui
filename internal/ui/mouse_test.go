@@ -179,7 +179,7 @@ func TestConfirmButtonsAndOutsideClick(t *testing.T) {
 		t.Errorf("No: modal %v, allRead %q", m.modal != nil, f.allRead)
 	}
 	m = run(t, m, key("M"))
-	m = clickText(t, m, "y Yes")
+	_ = clickText(t, m, "y Yes")
 	if f.allRead != notify.Direct {
 		t.Errorf("Yes marked %q", f.allRead)
 	}
@@ -216,7 +216,7 @@ func TestCreateFormClickFocusesThenOpens(t *testing.T) {
 		t.Error("clicking Create another did not toggle it")
 	}
 	x, y := cellOf(t, m, "Summary")
-	m = click(t, m, x+12, y)
+	_ = click(t, m, x+12, y)
 	if c.focus != focusSummary {
 		t.Errorf("clicking the summary left focus %d", c.focus)
 	}

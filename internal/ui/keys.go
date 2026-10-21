@@ -133,9 +133,6 @@ func footerText(parts []footerPart) string {
 	return strings.Join(texts, strings.Repeat(" ", footerGap))
 }
 
-// footer renders the hints of the given groups as the bottom help line.
-func footer(groups []bindingGroup) string { return footerText(footerParts(groups)) }
-
 // keyMsg turns a binding's press string back into the key it stands for.
 func keyMsg(press string) tea.KeyMsg {
 	switch press {

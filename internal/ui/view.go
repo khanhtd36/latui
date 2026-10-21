@@ -3,10 +3,10 @@ package ui
 import (
 	"errors"
 	"fmt"
-	"github.com/charmbracelet/x/ansi"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/khanhtd36/latui/internal/notify"
 )
@@ -52,8 +52,10 @@ func (m Model) pageLines() []string {
 	default:
 		body = m.notesView()
 	}
-	lines := []string{m.titleLine()}
-	for _, line := range padLines(body, m.bodyHeight()) {
+	padded := padLines(body, m.bodyHeight())
+	lines := make([]string, 0, len(padded)+3)
+	lines = append(lines, m.titleLine())
+	for _, line := range padded {
 		lines = append(lines, truncate(line, m.width))
 	}
 	lines = append(lines, m.statusLine())
@@ -111,7 +113,7 @@ func (m Model) modalOver() string {
 			return cmd
 		}}
 		if w != nil {
-			reg.wheel = func(mm *Model, d int) tea.Cmd { w.wheel(d); return nil }
+			reg.wheel = func(_ *Model, d int) tea.Cmd { w.wheel(d); return nil }
 		}
 		m.hits.add(reg)
 	}
