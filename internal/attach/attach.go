@@ -209,7 +209,7 @@ func Save(ctx context.Context, open Opener, dir, name string, size int64, progre
 func claim(dir, name, from string) (string, error) {
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		candidate := name
 		if i > 0 {
 			candidate = fmt.Sprintf("%s (%d)%s", stem, i, ext)

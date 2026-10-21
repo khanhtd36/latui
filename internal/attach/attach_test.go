@@ -107,7 +107,7 @@ func opener(body string) Opener {
 func TestSaveWritesReusesAndNumbers(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "KEY-1")
 	var last int64
-	s, err := Save(context.Background(), opener("hello"), dir, "a.txt", 5, func(done, total int64) { last = done })
+	s, err := Save(context.Background(), opener("hello"), dir, "a.txt", 5, func(done, _ int64) { last = done })
 	if err != nil || s.Reused || filepath.Base(s.Path) != "a.txt" || last != 5 {
 		t.Fatalf("first save: %+v, %v, progress %d", s, err, last)
 	}
