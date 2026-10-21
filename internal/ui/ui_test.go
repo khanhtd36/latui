@@ -21,14 +21,16 @@ import (
 )
 
 type fakeJira struct {
-	issue      *jira.Issue
-	labels     []string
-	assigned   *string
-	comment    string
-	transition string
-	rows       map[string][]jira.Row // by JQL prefix
-	created    []jira.NewIssue
-	moved      string
+	issue          *jira.Issue
+	labels         []string
+	assigned       *string
+	comment        string
+	commentSubs    []adf.Sub
+	mentionQueries []string
+	transition     string
+	rows           map[string][]jira.Row // by JQL prefix
+	created        []jira.NewIssue
+	moved          string
 }
 
 func (f *fakeJira) Site(context.Context) (auth.Credential, error) {
@@ -62,8 +64,8 @@ func (f *fakeJira) Transition(_ context.Context, _, id, res string) error {
 	return nil
 }
 
-func (f *fakeJira) AddComment(_ context.Context, _, md string) error {
-	f.comment = md
+func (f *fakeJira) AddComment(_ context.Context, _, md string, subs []adf.Sub) error {
+	f.comment, f.commentSubs = md, subs
 	return nil
 }
 func (f *fakeJira) SetSummary(context.Context, string, string) error { return nil }
@@ -79,6 +81,17 @@ func (f *fakeJira) Assign(_ context.Context, _, id string) error {
 
 func (f *fakeJira) AssignableUsers(context.Context, string, string) ([]jira.User, error) {
 	return []jira.User{{AccountID: "u2", DisplayName: "Lee Park"}}, nil
+}
+
+func (f *fakeJira) MentionableUsers(_ context.Context, _, _, q string) ([]jira.User, error) {
+	f.mentionQueries = append(f.mentionQueries, q)
+	var out []jira.User
+	for _, u := range []jira.User{{AccountID: "u2", DisplayName: "Lee Park", Active: true}, {AccountID: "u3", DisplayName: "Max Reyes", Active: true}} {
+		if strings.Contains(strings.ToLower(u.DisplayName), strings.ToLower(q)) {
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeJira) LabelSuggestions(context.Context, string) ([]string, error) {

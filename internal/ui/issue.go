@@ -53,6 +53,8 @@ type issueModel struct {
 	saving      string    // what a write in flight changes, for the title
 	pending     string    // a key to run once the issue loads (a My issues row action)
 
+	mention mentionDeps // how a text box in this issue mentions people
+
 	focus  int
 	tab    int
 	scroll [paneCount]int // first line shown, per pane
@@ -252,11 +254,15 @@ func (d *issueModel) onKey(msg tea.KeyMsg, width, height int) tea.Cmd {
 		}
 		return d.fetchTransitions()
 	case "c":
-		return showModal(newEditor("Comment on "+d.key, "", width, func(text string) tea.Cmd {
+		ed := newEditor("Comment on "+d.key, "", width, nil)
+		ed.mention = d.mentionSource()
+		ed.onSubmit = func(text string) tea.Cmd {
+			subs := ed.box.subs
 			return d.write("comment", "commented on "+d.key, true, func(ctx context.Context) error {
-				return d.api.AddComment(ctx, d.key, text)
+				return d.api.AddComment(ctx, d.key, text, subs)
 			})
-		}))
+		}
+		return showModal(ed)
 	case "e":
 		if !d.issue.Editable("summary") {
 			return statusCmd("the summary can't be edited here")

@@ -72,7 +72,9 @@ type createModal struct {
 	summary textinput.Model
 	desc    textarea.Model
 	focus   int
-	hits    []createHit // what the last draw left to click
+	hits    []createHit    // what the last draw left to click
+	mention *mentionSource // where an @ in the description looks people up
+	box     textBox
 
 	assignee    pickOption // id "" is Automatic
 	labels      []string
@@ -137,6 +139,7 @@ func newCreate(api jiraAPI, me jira.User, site string, metas *cache.Metas, o cre
 		fixedParent: o.parent, parent: o.parent, wantSubtask: o.parent != "",
 		assignee: pickOption{label: "Automatic"},
 	}
+	c.box.area = &c.desc
 	c.setFocus(focusSummary)
 	cmds := []tea.Cmd{c.fetchProjects()}
 	if o.project != "" {
@@ -477,6 +480,12 @@ func (c *createModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 		c.summary, cmd = c.summary.Update(msg)
 		return c, cmd
 	case focusDescription:
+		if k == "@" && c.mention != nil && c.box.afterSpace() {
+			src := *c.mention
+			src.project = c.project
+			p := src.picker(c, c)
+			return p, p.search("")
+		}
 		var cmd tea.Cmd
 		c.desc, cmd = c.desc.Update(msg)
 		return c, cmd
@@ -733,8 +742,8 @@ func (c *createModal) submit() (modal, tea.Cmd) {
 	}
 	n := jira.NewIssue{
 		Project: c.project, TypeID: c.typeID, Summary: summary,
-		Description: strings.TrimSpace(c.desc.Value()),
-		Assignee:    c.assignee.id, Labels: c.labels, PriorityID: c.priority.ID,
+		Description: strings.TrimSpace(c.desc.Value()), Mentions: c.box.subs,
+		Assignee: c.assignee.id, Labels: c.labels, PriorityID: c.priority.ID,
 		Parent: c.parent, Due: c.due,
 	}
 	for _, o := range c.components {

@@ -13,6 +13,7 @@ type pickOption struct {
 	id, label, detail string
 	checked           bool
 	create            bool // "create label …", from what was typed
+	team              bool // a team, in the mention picker
 }
 
 // pickerResultsMsg brings a picker's search results for a query.
@@ -41,6 +42,8 @@ type pickerModal struct {
 	onSave      func(chosen []pickOption) tea.Cmd
 	initial     string // the checked IDs when opened, to tell a change
 	back        modal  // shown again when the picker closes (nil: close)
+	cancel      func() // runs when esc closes a single picker
+	note        string // a line under the list
 }
 
 func newPicker(title string, multi bool, options []pickOption, onSave func([]pickOption) tea.Cmd) *pickerModal {
@@ -115,6 +118,9 @@ func (p *pickerModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 	case "esc":
 		if p.multi && p.checkedKey() != p.initial {
 			return &confirmModal{prompt: "Discard your changes?", back: p}, nil
+		}
+		if p.cancel != nil {
+			p.cancel()
 		}
 		return p.back, nil
 	case "up", "ctrl+p", "ctrl+k":
@@ -227,6 +233,9 @@ func (p *pickerModal) view(width int) string {
 		lines = append(lines, styleYellow.Render("searching…"))
 	case len(vis) == 0:
 		lines = append(lines, styleDim.Render("  no match"))
+	}
+	if p.note != "" {
+		lines = append(lines, styleDim.Render(truncate(p.note, w)))
 	}
 	hint := "↑/↓ move · enter pick · esc cancel"
 	if p.multi {

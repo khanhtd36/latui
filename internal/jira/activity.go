@@ -57,10 +57,11 @@ func (c *Client) Comments(ctx context.Context, key string) ([]Comment, error) {
 	return out, nil
 }
 
-// AddComment posts a comment written in markdown.
-func (c *Client) AddComment(ctx context.Context, key, markdown string) error {
+// AddComment posts a comment written in markdown, with the mentions typed
+// in it as subs.
+func (c *Client) AddComment(ctx context.Context, key, markdown string, subs []adf.Sub) error {
 	return c.do(ctx, "POST", "/rest/api/3/issue/"+esc(key)+"/comment",
-		map[string]any{"body": adf.FromMarkdown(markdown)}, nil)
+		map[string]any{"body": adf.FromMarkdownWith(markdown, subs)}, nil)
 }
 
 // Change is one field change in an issue's history.

@@ -113,7 +113,7 @@ func TestEdits(t *testing.T) {
 	if got["PUT /rest/api/3/issue/QA-1/assignee"] != `{"accountId":null}` {
 		t.Errorf("unassign body %s", got["PUT /rest/api/3/issue/QA-1/assignee"])
 	}
-	if err := c.AddComment(ctx, "QA-1", "hi **there**"); err != nil {
+	if err := c.AddComment(ctx, "QA-1", "hi **there**", nil); err != nil {
 		t.Fatal(err)
 	}
 	var body struct {

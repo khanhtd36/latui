@@ -114,6 +114,28 @@ func (c *Client) AssignableUsers(ctx context.Context, key, query string) ([]User
 	return users, err
 }
 
+// MentionableUsers finds active people who can see an issue, or a project's
+// issues when key is empty: the ones a mention can notify.
+func (c *Client) MentionableUsers(ctx context.Context, issueKey, projectKey, query string) ([]User, error) {
+	q := url.Values{"query": {query}, "maxResults": {"30"}}
+	if issueKey != "" {
+		q.Set("issueKey", issueKey)
+	} else {
+		q.Set("projectKey", projectKey)
+	}
+	var all []User
+	if err := c.do(ctx, "GET", "/rest/api/3/user/viewissue/search?"+q.Encode(), nil, &all); err != nil {
+		return nil, err
+	}
+	users := all[:0]
+	for _, u := range all {
+		if u.Active {
+			users = append(users, u)
+		}
+	}
+	return users, nil
+}
+
 // LabelSuggestions are existing labels matching prefix.
 func (c *Client) LabelSuggestions(ctx context.Context, prefix string) ([]string, error) {
 	q := url.Values{"fieldName": {"labels"}, "fieldValue": {prefix}}

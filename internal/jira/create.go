@@ -116,8 +116,9 @@ type NewIssue struct {
 	Project     string // key
 	TypeID      string
 	Summary     string
-	Description string // markdown
-	Assignee    string // account ID; "" lets Jira pick (Automatic)
+	Description string    // markdown
+	Mentions    []adf.Sub // the mentions typed in it
+	Assignee    string    // account ID; "" lets Jira pick (Automatic)
 	Labels      []string
 	Components  []string // IDs
 	PriorityID  string
@@ -135,7 +136,7 @@ func (n NewIssue) fields() map[string]any {
 		"summary":   n.Summary,
 	}
 	if n.Description != "" {
-		f["description"] = adf.FromMarkdown(n.Description)
+		f["description"] = adf.FromMarkdownWith(n.Description, n.Mentions)
 	}
 	if n.Assignee != "" {
 		f["assignee"] = map[string]string{"accountId": n.Assignee}

@@ -13,6 +13,7 @@ import (
 	"github.com/khanhtd36/latui/internal/auth"
 	"github.com/khanhtd36/latui/internal/jira"
 	"github.com/khanhtd36/latui/internal/notify"
+	"github.com/khanhtd36/latui/internal/teams"
 	"github.com/khanhtd36/latui/internal/termprobe"
 	"github.com/khanhtd36/latui/internal/ui"
 	"github.com/khanhtd36/latui/internal/update"
@@ -75,6 +76,9 @@ const restoreEnv = "LATUI_RESTORE"
 func run(interval time.Duration, restore string) (string, error) {
 	creds := auth.Default(os.Getenv)
 	model := ui.New(jira.New(creds), notify.New(creds), interval).Restore(restore)
+	if t := teams.FromEnv(creds, os.Getenv); t != nil {
+		model = model.WithTeams(t)
+	}
 	final, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	if err != nil {
 		return "", err

@@ -17,6 +17,8 @@ type Prefs struct {
 	// Collapsed are the My issues Sections closed, by status name; nil
 	// means the defaults (Fixed and Deferred closed).
 	Collapsed map[string]bool `json:"collapsed,omitempty"`
+	// Mentions are who was mentioned lately, newest first.
+	Mentions []Mention `json:"mentions,omitempty"`
 }
 
 // file is where the prefs live; tests point it elsewhere.
@@ -56,4 +58,26 @@ func (p Prefs) Save() error {
 		return err
 	}
 	return os.WriteFile(f, b, 0o600)
+}
+
+// Mention is a person or a team mentioned lately, offered first in the next
+// mention picker.
+type Mention struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Team bool   `json:"team,omitempty"`
+}
+
+// maxMentions is how many recent mentions are kept.
+const maxMentions = 8
+
+// RememberMention puts m first among the recent mentions, once.
+func (p *Prefs) RememberMention(m Mention) {
+	out := []Mention{m}
+	for _, r := range p.Mentions {
+		if r.ID != m.ID && len(out) < maxMentions {
+			out = append(out, r)
+		}
+	}
+	p.Mentions = out
 }

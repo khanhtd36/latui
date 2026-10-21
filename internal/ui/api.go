@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 
+	"github.com/khanhtd36/latui/internal/adf"
 	"github.com/khanhtd36/latui/internal/auth"
 	"github.com/khanhtd36/latui/internal/jira"
 	"github.com/khanhtd36/latui/internal/notify"
@@ -18,12 +19,13 @@ type jiraAPI interface {
 	History(ctx context.Context, key string) ([]jira.HistoryEntry, error)
 	Transitions(ctx context.Context, key string) ([]jira.Transition, error)
 	Transition(ctx context.Context, key, id, resolution string) error
-	AddComment(ctx context.Context, key, markdown string) error
+	AddComment(ctx context.Context, key, markdown string, subs []adf.Sub) error
 	SetSummary(ctx context.Context, key, summary string) error
 	SetLabels(ctx context.Context, key string, labels []string) error
 	SetComponents(ctx context.Context, key string, ids []string) error
 	Assign(ctx context.Context, key, accountID string) error
 	AssignableUsers(ctx context.Context, key, query string) ([]jira.User, error)
+	MentionableUsers(ctx context.Context, issueKey, projectKey, query string) ([]jira.User, error)
 	LabelSuggestions(ctx context.Context, prefix string) ([]string, error)
 	Search(ctx context.Context, jql string) ([]jira.Row, error)
 	FavouriteFilters(ctx context.Context) ([]jira.Filter, error)

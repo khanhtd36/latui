@@ -84,6 +84,14 @@ _Avoid_: Feed, timeline
 The column beside the Content on Issue detail that lists an issue's fields (status, assignee, labels and so on).
 _Avoid_: Details panel, metadata
 
+**Mention**:
+Typing `@` in a Comment or a new issue's Description to name a person or a Team; posting turns the typed `@Name` into a real mention that notifies them. A typed `@Name` that was not picked stays plain text.
+_Avoid_: Tag, ping
+
+**Team**:
+An Atlassian Team, mentioned as its name linked to its page followed by a Mention of each member, as the web writes it; only the members are notified.
+_Avoid_: Group
+
 **Summary**:
 An issue's one-line title.
 _Avoid_: Title, name, subject

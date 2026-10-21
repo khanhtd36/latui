@@ -153,6 +153,31 @@ The description is shown, not edited: rich content markdown can't hold
 (panels, media, tables with merged cells) would be lost. Press `o` to edit it
 in the browser.
 
+### Mentions
+
+Type `@` after a space, or at the start of a line, in a comment or in a new
+issue's description and a picker opens: type to search the people who can see
+the issue. Before you type it lists who you mentioned lately, then the issue's
+own people (you, the reporter, the assignee, who commented). Enter puts
+`@Name` in the text and the comment or issue gets a real mention, so they are
+notified. Esc leaves the `@` as typed, and an `@` inside a word (an email
+address) is never a mention. Text you type as `@Name` without picking stays
+plain.
+
+**Teams** (`@MITS11 Testers`) are written the way the web does: the team's
+name linked to its page, then every member as a mention, since Jira notifies
+the members. Teams need an API token, because acli's sign-in can't read them.
+Create one at
+[id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)
+and set, next to the acli sign-in:
+
+```sh
+export LATUI_TEAMS_EMAIL=you@example.com
+export LATUI_TEAMS_TOKEN=...
+```
+
+Without them the picker lists people only and says so once per run.
+
 ### Mouse
 
 Everything the keyboard can focus can be clicked.

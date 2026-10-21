@@ -47,6 +47,7 @@ type Model struct {
 	modal       modal
 	prefs       *prefs.Prefs // shared by every copy of the Model
 	hits        *hitMap      // what the last draw left for the mouse
+	teams       teamsAPI     // looks up teams to mention; nil without a token
 
 	status      string
 	lastProject string // for ctrl+g with a bare number
@@ -276,6 +277,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onUpdateDone(msg)
 	case restartMsg:
 		return m.onRestart()
+	case teamMembersMsg:
+		return m.onTeamMembers(msg)
 	case tea.MouseMsg:
 		return m.onMouse(msg)
 	case tea.KeyMsg:
@@ -455,6 +458,7 @@ func (m Model) newIssueForm(parent string) (tea.Model, tea.Cmd) {
 		o.project = jira.ProjectOf(m.issue.key)
 	}
 	c, cmd := newCreate(m.jira, m.me, m.site.Site, m.metas, o)
+	c.mention = &mentionSource{mentionDeps: m.mentionDeps(), api: m.jira, site: m.site.Site, project: o.project, people: []jira.User{m.me}}
 	prefsRef := m.prefs
 	c.onAnother = func(on bool) {
 		prefsRef.CreateAnother = on
@@ -541,6 +545,7 @@ func (m Model) known(key string) *issueModel {
 		delete(m.knownIssues, oldest)
 	}
 	d := newIssue(m.jira, m.site, m.me, key)
+	d.mention = m.mentionDeps()
 	m.knownIssues[key] = d
 	return d
 }

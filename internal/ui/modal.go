@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/khanhtd36/latui/internal/adf"
 )
 
 // modal is a popup that takes all keys until it closes by returning nil.
@@ -161,7 +163,9 @@ type editorModal struct {
 	title    string
 	ta       textarea.Model
 	onSubmit func(content string) tea.Cmd
-	initial  string // text the editor opened with; esc only asks if it changed
+	initial  string         // text the editor opened with; esc only asks if it changed
+	mention  *mentionSource // where an @ looks people up; nil: an @ is just an @
+	box      textBox
 }
 
 func newEditor(title, initial string, width int, onSubmit func(string) tea.Cmd) *editorModal {
@@ -173,8 +177,12 @@ func newEditor(title, initial string, width int, onSubmit func(string) tea.Cmd) 
 	ta.SetValue(initial)
 	ta.Cursor.SetMode(cursor.CursorStatic) // a blinking cursor needs tick messages we don't route
 	ta.Focus()
-	return &editorModal{title: title, ta: ta, onSubmit: onSubmit, initial: initial}
+	e := &editorModal{title: title, ta: ta, onSubmit: onSubmit, initial: initial}
+	e.box.area = &e.ta
+	return e
 }
+
+func (e *editorModal) insert(text string, sub *adf.Sub) { e.box.insert(text, sub) }
 
 func (e *editorModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 	switch msg.String() {
@@ -191,6 +199,11 @@ func (e *editorModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 		return nil, e.onSubmit(content)
 	case "ctrl+e":
 		return e, e.openEditor()
+	case "@":
+		if e.mention != nil && e.box.afterSpace() {
+			p := e.mention.picker(e, e)
+			return p, p.search("")
+		}
 	}
 	var cmd tea.Cmd
 	e.ta, cmd = e.ta.Update(msg)
@@ -251,7 +264,7 @@ func editorCommand() (string, []string) {
 
 func (e *editorModal) view(int) string {
 	return styleModal.Render(styleSection.Render(e.title) + "\n\n" + e.ta.View() + "\n\n" +
-		styleDim.Render("ctrl+s post · ctrl+e open in $EDITOR · esc cancel"))
+		styleDim.Render(e.hint()))
 }
 
 // --- Mouse ---
@@ -304,4 +317,13 @@ func (c *confirmModal) pressAt(b buttonBar, x int) (modal, tea.Cmd) {
 		return c.press(i)
 	}
 	return c, nil
+}
+
+// hint is the editor's key line.
+func (e *editorModal) hint() string {
+	h := "ctrl+s post · ctrl+e open in $EDITOR · esc cancel"
+	if e.mention != nil {
+		h = "@ mention · " + h
+	}
+	return h
 }
