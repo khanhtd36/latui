@@ -154,11 +154,11 @@ func (s mentionSource) picker(box mentionTarget, back modal) *pickerModal {
 			p.note = teamsHint
 		case teams.Rejected:
 			p.note = teamsRejectedHint
+		default: // Ready: nothing to say
 		}
 		if p.note != "" {
-			p.keys = map[string]func() (modal, tea.Cmd){"ctrl+t": func() (modal, tea.Cmd) {
-				setup := newTeamsSetup(s.teams.Login, s.email, p, func() tea.Cmd { return p.search(strings.TrimSpace(p.input.Value())) })
-				return setup, nil
+			p.keys = map[string]func() modal{"ctrl+t": func() modal {
+				return newTeamsSetup(s.teams.Login, s.email, p, func() tea.Cmd { return p.search(strings.TrimSpace(p.input.Value())) })
 			}}
 		}
 	}

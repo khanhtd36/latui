@@ -79,7 +79,7 @@ func gateway(t *testing.T, answers map[string]string) *rig {
 	}))
 	t.Cleanup(srv.Close)
 	r.Client = New(site{}, func(k string) string { return r.env[k] }, r.store)
-	r.Client.HTTP, r.Client.URL = srv.Client(), srv.URL
+	r.HTTP, r.URL = srv.Client(), srv.URL
 	return r
 }
 

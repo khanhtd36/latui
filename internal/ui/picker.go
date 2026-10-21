@@ -40,11 +40,11 @@ type pickerModal struct {
 	cursor      int
 	search      func(q string) tea.Cmd
 	onSave      func(chosen []pickOption) tea.Cmd
-	initial     string                             // the checked IDs when opened, to tell a change
-	back        modal                              // shown again when the picker closes (nil: close)
-	cancel      func()                             // runs when esc closes a single picker
-	keys        map[string]func() (modal, tea.Cmd) // extra keys, named in the note
-	note        string                             // a line under the list
+	initial     string                  // the checked IDs when opened, to tell a change
+	back        modal                   // shown again when the picker closes (nil: close)
+	cancel      func()                  // runs when esc closes a single picker
+	keys        map[string]func() modal // extra keys, each opening a modal; named in the note
+	note        string                  // a line under the list
 }
 
 func newPicker(title string, multi bool, options []pickOption, onSave func([]pickOption) tea.Cmd) *pickerModal {
@@ -153,7 +153,7 @@ func (p *pickerModal) update(msg tea.KeyMsg) (modal, tea.Cmd) {
 		return p, nil
 	}
 	if f, ok := p.keys[msg.String()]; ok {
-		return f()
+		return f(), nil
 	}
 	if p.noSpaces && msg.Type == tea.KeySpace {
 		return p, nil

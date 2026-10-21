@@ -23,7 +23,7 @@ const teamsUsage = `usage:
 Teams need an API token because acli's sign-in can't read them. Create one at
 https://id.atlassian.com/manage-profile/security/api-tokens . It is checked,
 then kept in the OS secure store. LATUI_TEAMS_TOKEN (and LATUI_TEAMS_EMAIL)
-in the environment take priority over it.`
+in the environment take priority over it`
 
 // teamsCommand is `latui teams login` and `latui teams logout`.
 func teamsCommand(args []string) error {

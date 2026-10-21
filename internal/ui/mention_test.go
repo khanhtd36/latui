@@ -158,7 +158,7 @@ func TestPickerSaysHowToSetUpTeams(t *testing.T) {
 	if len(tm.searched) != 0 {
 		t.Error("teams were searched with no token")
 	}
-	m = run(t, m, key("esc"))
+	_ = run(t, m, key("esc"))
 
 	rejected := &fakeTeams{state: teams.Rejected}
 	m, _ = commentBox(t, &fakeJira{issue: sampleIssue()}, rejected)
